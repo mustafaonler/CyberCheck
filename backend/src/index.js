@@ -6,6 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const scanRoutes = require('./routes/scanRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -27,6 +28,7 @@ app.get('/', (req, res) => {
 
 // ─── API Rotaları ──────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
+app.use('/api/scan', scanRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 app.use((req, res) => {
