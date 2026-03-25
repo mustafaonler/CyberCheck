@@ -5,6 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/db');
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,8 +25,8 @@ app.get('/', (req, res) => {
     });
 });
 
-// ─── API Rotaları (İleride buraya eklenecek) ────────────────────────────────
-// Örnek: app.use('/api/users', require('./routes/userRoutes'));
+// ─── API Rotaları ──────────────────────────────────────────────────────────
+app.use('/api/auth', authRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 app.use((req, res) => {
