@@ -3,9 +3,11 @@ const router = express.Router();
 const uploadMiddleware = require('../middlewares/uploadMiddleware');
 const scanController = require('../controllers/scanController');
 
-// POST route /api/scan/upload
-// Expecting a single file upload with the field name 'file'
+// POST /api/scan/upload — Receive image in RAM and submit to VirusTotal
 router.post('/upload', uploadMiddleware.single('file'), scanController.uploadImage);
+
+// GET /api/scan/report/:id — Fetch and parse the VirusTotal analysis report
+router.get('/report/:id', scanController.getReport);
 
 // Export the router
 module.exports = router;
