@@ -1,61 +1,100 @@
-import React from 'react';
+// App.jsx
+// Root component — manages auth session and renders the correct screen.
+//
+// Flow:
+//   initializing → (Supabase session check) →
+//     ├─ not logged in  → <AuthPage>
+//     └─ logged in      → <AppHeader> + <ScanPage>
 
-/**
- * App — CyberCheck Web Panelinin kök bileşeni.
- * İleride buraya Router ve global Provider'lar eklenecek.
- */
-function App() {
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase }   from './lib/supabase.js';
+import AuthPage       from './pages/AuthPage.jsx';
+import ScanPage       from './pages/ScanPage.jsx';
+import AppHeader      from './components/AppHeader.jsx';
+
+// ── Bootstrap spinner (shown only during the initial session check) ──
+
+function BootSpinner() {
     return (
-        <div style={styles.container}>
-            <div style={styles.card}>
-                <h1 style={styles.title}>🛡️ CyberCheck</h1>
-                <p style={styles.subtitle}>CyberCheck Web Paneline Hoş Geldiniz</p>
-                <span style={styles.badge}>v1.0.0 — Geliştirme Modu</span>
-            </div>
+        <div style={{
+            minHeight: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 16,
+        }}>
+            <div style={{
+                width: 44,
+                height: 44,
+                border: '3px solid rgba(59,130,246,0.2)',
+                borderTopColor: '#3b82f6',
+                borderRadius: '50%',
+                animation: 'spin 0.9s linear infinite',
+            }} />
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                Oturum kontrol ediliyor…
+            </p>
         </div>
     );
 }
 
-const styles = {
-    container: {
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f0c29, #302b63, #24243e)',
-        fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-    },
-    card: {
-        background: 'rgba(255, 255, 255, 0.05)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '16px',
-        padding: '48px 64px',
-        textAlign: 'center',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-    },
-    title: {
-        fontSize: '3rem',
-        fontWeight: '700',
-        color: '#ffffff',
-        margin: '0 0 12px',
-        letterSpacing: '-1px',
-    },
-    subtitle: {
-        fontSize: '1.2rem',
-        color: 'rgba(255, 255, 255, 0.75)',
-        margin: '0 0 24px',
-    },
-    badge: {
-        display: 'inline-block',
-        padding: '6px 16px',
-        borderRadius: '20px',
-        background: 'rgba(99, 102, 241, 0.3)',
-        color: '#a5b4fc',
-        fontSize: '0.8rem',
-        fontWeight: '500',
-        border: '1px solid rgba(99, 102, 241, 0.4)',
-    },
-};
+// ── App ────────────────────────────────────────────────────────
 
-export default App;
+export default function App() {
+    // null = checking, object = logged in, false = logged out
+    const [session,      setSession]      = useState(null);
+    const [initializing, setInitializing] = useState(true);
+
+    // ── On mount: read existing session & subscribe to auth events ──
+    useEffect(() => {
+        // 1. Check for an existing session immediately
+        supabase.auth.getSession().then(({ data }) => {
+            setSession(data.session ?? false);
+            setInitializing(false);
+        });
+
+        // 2. Subscribe to future auth state changes
+        //    (login, logout, token refresh, etc.)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            (_event, newSession) => {
+                setSession(newSession ?? false);
+            }
+        );
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    // ── Auth success callback from <AuthPage> ─────────────────
+    const handleAuthSuccess = useCallback((newSession) => {
+        setSession(newSession);
+    }, []);
+
+    // ── Logout ────────────────────────────────────────────────
+    const handleLogout = useCallback(async () => {
+        await supabase.auth.signOut();
+        // onAuthStateChange will fire → session becomes null/false
+    }, []);
+
+    // ── Render ────────────────────────────────────────────────
+
+    // Still reading the stored session
+    if (initializing) return <BootSpinner />;
+
+    // Not authenticated → show Login / Register
+    if (!session) return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+
+    // Authenticated → show scanning interface with header
+    const userEmail = session.user?.email ?? '';
+
+    return (
+        <>
+            <AppHeader email={userEmail} onLogout={handleLogout} />
+            {/*
+              Pass a className so ScanPage adds top padding to clear the fixed header.
+              The ScanPage itself reads this via its root div.
+            */}
+            <ScanPage headerOffset />
+        </>
+    );
+}
