@@ -9,5 +9,8 @@ router.post('/upload', uploadMiddleware.single('file'), scanController.uploadIma
 // GET /api/scan/report/:id — Fetch and parse the VirusTotal analysis report
 router.get('/report/:id', scanController.getReport);
 
+// GET /api/scan/history?limit=20&offset=0 — List past scans from the database
+router.get('/history', scanController.getScanHistory);
+
 // Export the router
 module.exports = router;
