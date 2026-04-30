@@ -5,8 +5,9 @@
 const axios = require('axios');
 const FormData = require('form-data');
 
-const VT_FILES_URL = 'https://www.virustotal.com/api/v3/files';
-const VT_ANALYSES_URL = 'https://www.virustotal.com/api/v3/analyses';
+const VT_FILES_URL     = 'https://www.virustotal.com/api/v3/files';
+const VT_URLS_URL      = 'https://www.virustotal.com/api/v3/urls';
+const VT_ANALYSES_URL  = 'https://www.virustotal.com/api/v3/analyses';
 
 /**
  * Uploads a file buffer to VirusTotal for analysis.
@@ -111,4 +112,55 @@ const getAnalysisReport = async (analysisId) => {
     }
 };
 
-module.exports = { scanFileWithVirusTotal, getAnalysisReport };
+/**
+ * Submits a URL to VirusTotal for analysis.
+ * @param {string} url - The URL (or IP address) to scan.
+ * @returns {Promise<object>} The VirusTotal response data containing the analysis ID.
+ */
+const scanUrl = async (url) => {
+    const apiKey = process.env.VT_API_KEY;
+
+    if (!apiKey) {
+        throw new Error('VT_API_KEY is not defined in environment variables.');
+    }
+
+    if (!url) {
+        throw new Error('url is required.');
+    }
+
+    // VT v3 expects the URL as application/x-www-form-urlencoded
+    const body = new URLSearchParams({ url });
+
+    try {
+        const response = await axios.post(VT_URLS_URL, body.toString(), {
+            headers: {
+                'x-apikey': apiKey,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            timeout: 30000,
+        });
+
+        return response.data;
+    } catch (error) {
+        if (error.response) {
+            const status     = error.response.status;
+            const vtMessage  = error.response.data?.error?.message || 'Unknown VirusTotal error.';
+
+            if (status === 401) {
+                throw new Error(`VirusTotal authentication failed. Check your VT_API_KEY. (${vtMessage})`);
+            } else if (status === 429) {
+                throw new Error('VirusTotal rate limit exceeded. Please try again later.');
+            } else if (status === 400) {
+                throw new Error(`VirusTotal rejected the request: ${vtMessage}`);
+            } else {
+                throw new Error(`VirusTotal API error [${status}]: ${vtMessage}`);
+            }
+        } else if (error.request) {
+            throw new Error('No response from VirusTotal. Check your internet connection or try again later.');
+        } else {
+            throw new Error(`Failed to send URL to VirusTotal: ${error.message}`);
+        }
+    }
+};
+
+module.exports = { scanFileWithVirusTotal, scanUrl, getAnalysisReport };

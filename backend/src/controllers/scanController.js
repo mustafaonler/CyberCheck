@@ -1,7 +1,8 @@
 // controllers/scanController.js
 // Orchestrates file scanning via VirusTotal and persists results to Supabase.
 
-const { scanFileWithVirusTotal, getAnalysisReport } = require('../services/virusTotalService');
+const { scanFileWithVirusTotal, scanUrl, getAnalysisReport } = require('../services/virusTotalService');
+const { analyzeContent } = require('../services/geminiService');
 const {
     createScanRecord,
     updateScanRecord,
@@ -210,6 +211,116 @@ exports.getScanHistory = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to retrieve scan history.',
+        });
+    }
+};
+/**
+ * POST /api/scan/url
+ * Receives a URL string, submits it to VirusTotal,
+ * creates a 'queued' DB record, and returns the analysis ID for polling.
+ */
+exports.handleUrlScan = async (req, res) => {
+    try {
+        const { url } = req.body;
+
+        if (!url || typeof url !== 'string' || !url.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'A non-empty \'url\' field is required in the request body.',
+            });
+        }
+
+        const trimmedUrl = url.trim();
+        console.log(`[ScanController] URL scan requested for "${trimmedUrl}". Forwarding to VirusTotal...`);
+
+        // ── Step 1: Submit URL to VirusTotal ────────────────────────────────
+        const vtResponse  = await scanUrl(trimmedUrl);
+        const analysisId  = vtResponse?.data?.id;
+        const analysisLinks = vtResponse?.data?.links;
+
+        // ── Step 2: Persist 'queued' record to database ─────────────────────
+        let dbRecord = null;
+        try {
+            dbRecord = await createScanRecord({
+                fileName:   trimmedUrl,   // store the URL as the "file_name" for display
+                fileSize:   0,
+                analysisId,
+            });
+            console.log(`[ScanController] DB record created for URL (id=${dbRecord?.id}, analysisId=${analysisId}).`);
+        } catch (dbError) {
+            // DB failure must NOT abort the scan — log and continue
+            console.error(`[ScanController] WARNING: Failed to save URL scan DB record: ${dbError.message}`);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'URL successfully submitted to VirusTotal for analysis.',
+            data: {
+                scanId:    dbRecord?.id ?? null,
+                url:       trimmedUrl,
+                analysisId,
+                links:     analysisLinks,
+            },
+        });
+
+    } catch (error) {
+        console.error('[ScanController] handleUrlScan error:', error.message);
+
+        const isClientError =
+            error.message.includes('rate limit') ||
+            error.message.includes('authentication failed') ||
+            error.message.includes('rejected the request');
+
+        return res.status(isClientError ? 400 : 500).json({
+            success: false,
+            message: error.message || 'Server error during URL scanning.',
+        });
+    }
+};
+
+/**
+ * POST /api/scan/text
+ * Accepts optional `text` (string) and optional `image` (file via Multer).
+ * Uses Google Gemini AI to analyze the content for phishing or social engineering.
+ */
+exports.handleTextScan = async (req, res) => {
+    try {
+        const text  = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+        const image = req.file ?? null;
+
+        // ── Guard: need at least one input ────────────────────────────────────
+        if (!text && !image) {
+            return res.status(400).json({
+                success: false,
+                message: 'Provide at least one of: \'text\' (string) or \'image\' (file).',
+            });
+        }
+
+        console.log(`[ScanController] AI Analysis requested. Text length: ${text.length}, Image provided: ${!!image}`);
+
+        const imageBuffer = image ? image.buffer : null;
+        const mimeType    = image ? image.mimetype : null;
+
+        // ── Step 1: Analyze content with Gemini ───────────────────────────────
+        const aiReport = await analyzeContent(text, imageBuffer, mimeType);
+
+        // ── Step 2: Return the AI Report ──────────────────────────────────────
+        return res.status(200).json({
+            success: true,
+            mode: 'gemini_analysis',
+            data: {
+                report: aiReport,
+                fileName: image?.originalname ?? null,
+                fileSizeBytes: image?.size ?? null
+            },
+        });
+
+    } catch (error) {
+        console.error('[ScanController] handleTextScan error:', error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Server error during AI analysis.',
         });
     }
 };

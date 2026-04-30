@@ -2,24 +2,34 @@
 // Full scan flow: upload → polling → verdict report.
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import DropZone    from '../components/DropZone.jsx';
+import DropZone from '../components/DropZone.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import '../components/ScanPage.css';
+import ReactMarkdown from 'react-markdown';
+import { supabase } from '../lib/supabase';
 
-const API_BASE      = 'http://localhost:5000';
+const API_BASE = 'http://localhost:5000';
 const POLL_INTERVAL = 3000; // ms between each report fetch
-const MAX_POLLS     = 40;   // stop after ~2 minutes
+const MAX_POLLS = 40;   // stop after ~2 minutes
 
 // ── State machine ─────────────────────────────────────────────
 const STATE = {
-    IDLE:     'idle',      // waiting for file/url/text
-    UPLOADING:'uploading', // POST in flight
-    POLLING:  'polling',   // waiting for VT to finish
-    DONE:     'done',      // final verdict ready
-    ERROR:    'error',     // unrecoverable error
+    IDLE: 'idle',      // waiting for file/url/text
+    UPLOADING: 'uploading', // POST in flight
+    POLLING: 'polling',   // waiting for VT to finish
+    DONE: 'done',      // final verdict ready
+    ERROR: 'error',     // unrecoverable error
 };
 
 // ── SVG Icons ─────────────────────────────────────────────────
+
+const DownloadIcon = ({ size = 20, ...props }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+    </svg>
+);
 
 const ShieldIcon = ({ size = 24, ...props }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -123,20 +133,20 @@ const formatBytes = (bytes) => {
 // ── Main component ────────────────────────────────────────────
 
 export default function ScanPage() {
-    const [activeTab,  setActiveTab]  = useState('file'); // 'file' | 'url' | 'text'
-    const [file,       setFile]       = useState(null);
-    const [urlInput,   setUrlInput]   = useState('');
-    const [textInput,  setTextInput]  = useState('');
-    const [ssFile,     setSsFile]     = useState(null);
+    const [activeTab, setActiveTab] = useState('file'); // 'file' | 'url' | 'text'
+    const [file, setFile] = useState(null);
+    const [urlInput, setUrlInput] = useState('');
+    const [textInput, setTextInput] = useState('');
+    const [ssFile, setSsFile] = useState(null);
 
-    const [uiState,    setUiState]    = useState(STATE.IDLE);
-    const [error,      setError]      = useState(null);    // { title, message }
+    const [uiState, setUiState] = useState(STATE.IDLE);
+    const [error, setError] = useState(null);    // { title, message }
     const [uploadData, setUploadData] = useState(null);    // { analysisId, scanId, fileName, fileSizeBytes }
-    const [report,     setReport]     = useState(null);    // final VT report object
-    const [pollCount,  setPollCount]  = useState(0);
+    const [report, setReport] = useState(null);    // final VT report object
+    const [pollCount, setPollCount] = useState(0);
 
     const pollTimerRef = useRef(null);
-    const abortRef     = useRef(null); // AbortController for in-flight fetch
+    const abortRef = useRef(null); // AbortController for in-flight fetch
 
     // ── Cleanup on unmount ─────────────────────────────────
     useEffect(() => () => {
@@ -196,7 +206,7 @@ export default function ScanPage() {
 
         try {
             abortRef.current = new AbortController();
-            const res  = await fetch(
+            const res = await fetch(
                 `${API_BASE}/api/scan/report/${analysisId}`,
                 { signal: abortRef.current.signal }
             );
@@ -250,7 +260,7 @@ export default function ScanPage() {
                 formData.append('file', file);
                 res = await fetch(`${API_BASE}/api/scan/upload`, {
                     method: 'POST',
-                    body:   formData,
+                    body: formData,
                     signal: abortRef.current.signal,
                 });
             } else if (activeTab === 'url') {
@@ -261,11 +271,10 @@ export default function ScanPage() {
                     signal: abortRef.current.signal,
                 });
             } else if (activeTab === 'text') {
-                // Future text/ss analysis endpoint
                 const formData = new FormData();
                 if (textInput.trim()) formData.append('text', textInput.trim());
-                if (ssFile) formData.append('screenshot', ssFile);
-                
+                if (ssFile) formData.append('image', ssFile);
+
                 res = await fetch(`${API_BASE}/api/scan/text`, {
                     method: 'POST',
                     body: formData,
@@ -280,7 +289,61 @@ export default function ScanPage() {
             }
 
             const data = json.data;
-            setUploadData(data);
+
+            // ── Text sekme: mode'a göre farklı akış ──────────────────────────
+            if (activeTab === 'text') {
+                // Gemini analysis completes immediately (no polling)
+                setUploadData({
+                    ...data,
+                    url: null,
+                    fileName: data.fileName ?? null,
+                });
+                setReport({
+                    status: 'completed',
+                    isGemini: true,
+                    aiReport: data.report
+                });
+                setUiState(STATE.DONE);
+
+                // Insert into Supabase 'scans' table
+                try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (user) {
+                        let riskVerdict = 'unknown';
+                        const lower = data.report?.toLowerCase() || '';
+                        if (lower.includes('kritik') || lower.includes('yüksek')) {
+                            riskVerdict = 'malicious';
+                        } else if (lower.includes('orta') || lower.includes('şüpheli')) {
+                            riskVerdict = 'suspicious';
+                        } else if (lower.includes('düşük') || lower.includes('temiz')) {
+                            riskVerdict = 'clean';
+                        }
+
+                        await supabase.from('scans').insert([
+                            { 
+                                user_id: user.id,
+                                file_name: "Yapay Zeka Analizi", 
+                                file_size: 0, 
+                                analysis_id: `ai_scan_${Date.now()}_${Math.random().toString(36).substring(7)}`, 
+                                status: 'completed',
+                                verdict: riskVerdict,
+                                stats: { report_content: data.report }
+                            }
+                        ]);
+                    }
+                } catch (dbErr) {
+                    console.error("Supabase DB kaydı sırasında hata:", dbErr);
+                }
+
+                return; // handleScan bitti
+            }
+
+            // ── Dosya / URL sekmeleri: normalleştirilmiş uploadData + polling ─
+            setUploadData({
+                ...data,
+                url: data.url ?? null,
+                fileName: data.fileName ?? null,
+            });
 
             // Kick off polling immediately
             setUiState(STATE.POLLING);
@@ -347,7 +410,7 @@ export default function ScanPage() {
                                     }}
                                     title="Dosya Tarama"
                                 >
-                                    📄 <span style={{display: 'none'}} className="mobile-hide">Dosya</span>
+                                    📄 <span style={{ display: 'none' }} className="mobile-hide">Dosya</span>
                                 </button>
                                 <button
                                     role="tab"
@@ -359,7 +422,7 @@ export default function ScanPage() {
                                     }}
                                     title="URL Tarama"
                                 >
-                                    🔗 <span style={{display: 'none'}} className="mobile-hide">URL</span>
+                                    🔗 <span style={{ display: 'none' }} className="mobile-hide">URL</span>
                                 </button>
                                 <button
                                     role="tab"
@@ -421,7 +484,7 @@ export default function ScanPage() {
                                 {activeTab === 'text' && (
                                     <div className="text-analysis-container">
                                         <p className="scan-page__section-label">Şüpheli İçerik Analizi</p>
-                                        
+
                                         {/* Text Input */}
                                         <div className="text-input-wrap">
                                             <textarea
@@ -485,23 +548,23 @@ export default function ScanPage() {
                         )}
 
                         {/* Scan button */}
-                        {((activeTab === 'file' && file) || 
-                          (activeTab === 'url' && urlInput.trim()) ||
-                          (activeTab === 'text' && (textInput.trim() || ssFile))
-                         ) && uiState === STATE.IDLE && (
-                            <>
-                                <div className="divider" />
-                                <button
-                                    id="btn-scan"
-                                    className="btn-scan"
-                                    onClick={handleScan}
-                                    aria-label="Taramayı başlat"
-                                >
-                                    <ScanIcon />
-                                    {getScanButtonText()}
-                                </button>
-                            </>
-                        )}
+                        {((activeTab === 'file' && file) ||
+                            (activeTab === 'url' && urlInput.trim()) ||
+                            (activeTab === 'text' && (textInput.trim() || ssFile))
+                        ) && uiState === STATE.IDLE && (
+                                <>
+                                    <div className="divider" />
+                                    <button
+                                        id="btn-scan"
+                                        className="btn-scan"
+                                        onClick={handleScan}
+                                        aria-label="Taramayı başlat"
+                                    >
+                                        <ScanIcon />
+                                        {getScanButtonText()}
+                                    </button>
+                                </>
+                            )}
 
                         {/* New scan button when error/timeout occurred during polling */}
                         {(uiState === STATE.ERROR) && (
@@ -568,6 +631,115 @@ function PollingState({ pollCount }) {
 // ── VerdictReport ─────────────────────────────────────────────
 
 function VerdictReport({ report, uploadData, onReset }) {
+    const reportRef = useRef(null);
+
+    if (report.isGemini) {
+        const aiText = report.aiReport || "";
+
+        let riskLevel = 'Bilinmiyor';
+        let riskVariant = 'unknown';
+
+        // Extract Risk Level robustly
+        const lowerText = aiText.toLowerCase();
+        if (lowerText.includes('kritik')) {
+            riskLevel = 'Kritik';
+            riskVariant = 'critical';
+        } else if (lowerText.includes('yüksek')) {
+            riskLevel = 'Yüksek';
+            riskVariant = 'high';
+        } else if (lowerText.includes('orta')) {
+            riskLevel = 'Orta';
+            riskVariant = 'medium';
+        } else if (lowerText.includes('düşük')) {
+            riskLevel = 'Düşük';
+            riskVariant = 'low';
+        }
+
+        const handleDownloadPDF = () => {
+            // Using window.print() leverages the browser's native print-to-PDF
+            // functionality, which perfectly handles complex CSS, glassmorphism, 
+            // and Tailwind classes that html2canvas struggles with.
+            window.print();
+        };
+
+        return (
+            <div className="verdict-report-wrapper">
+                <div id="pdf-report-container" ref={reportRef} className="pdf-target-container print:bg-white print:text-black print:shadow-none print:border print:border-gray-300 [&_*]:print:text-black" style={{ padding: '24px', borderRadius: '12px' }}>
+                    <div className="verdict-hero">
+                        <div className={`verdict-hero__icon-wrap verdict-hero__icon-wrap--${riskVariant}`}>
+                            <div className={`verdict-hero__icon verdict-hero__icon--${riskVariant}`}>
+                                {(riskVariant === 'critical' || riskVariant === 'high') ? <AlertTriangleIcon /> : <CheckIcon />}
+                            </div>
+                        </div>
+
+                        <p className={`verdict-hero__label verdict-hero__label--${riskVariant}`}>
+                            {riskVariant === 'critical' && '⚠️ Kritik Risk Tespit Edildi!'}
+                            {riskVariant === 'high' && '⚠️ Yüksek Risk Tespit Edildi'}
+                            {riskVariant === 'medium' && '⚠️ Orta Düzey Risk Tespit Edildi'}
+                            {riskVariant === 'low' && '✅ İçerik Temiz Görünüyor'}
+                            {riskVariant === 'unknown' && 'Yapay Zeka Analiz Raporu'}
+                        </p>
+
+                        <div className={`risk-badge risk-badge--${riskVariant}`}>
+                            Risk Seviyesi: <strong>{riskLevel}</strong>
+                        </div>
+                    </div>
+
+                    <div className="divider" />
+
+                    <div className="ai-report-container">
+                        <div className="ai-report-content">
+                            <ReactMarkdown>{aiText}</ReactMarkdown>
+                        </div>
+                    </div>
+
+                    <div className="divider" />
+
+                    {/* File meta */}
+                    {uploadData?.fileName && (
+                        <div className="report-meta">
+                            <div className="report-meta__row">
+                                <span className="report-meta__label">Görsel</span>
+                                <span className="report-meta__value" title={uploadData.fileName}>
+                                    {uploadData.fileName}
+                                </span>
+                            </div>
+                            {uploadData?.fileSizeBytes != null && (
+                                <div className="report-meta__row">
+                                    <span className="report-meta__label">Boyut</span>
+                                    <span className="report-meta__value">
+                                        {formatBytes(uploadData.fileSizeBytes)}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                <div className="action-buttons print:hidden" style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                    <button
+                        className="btn-download-pdf print:hidden"
+                        onClick={handleDownloadPDF}
+                        aria-label="Raporu İndir (PDF)"
+                    >
+                        <DownloadIcon />
+                        Raporu İndir (PDF)
+                    </button>
+                    <button
+                        id="btn-new-scan"
+                        className="btn-new-scan"
+                        onClick={onReset}
+                        aria-label="Yeni tarama başlat"
+                        data-html2canvas-ignore="true"
+                    >
+                        <RefreshIcon />
+                        Yeni Tarama
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     const { verdict, stats, status, date } = report;
     const { malicious, suspicious, harmless, undetected, total } = stats ?? {};
 
@@ -588,9 +760,9 @@ function VerdictReport({ report, uploadData, onReset }) {
                 </div>
 
                 <p className={`verdict-hero__label verdict-hero__label--${variantKey}`}>
-                    {verdict === 'malicious'  && '⚠️ Tehlikeli İçerik Tespit Edildi'}
+                    {verdict === 'malicious' && '⚠️ Tehlikeli İçerik Tespit Edildi'}
                     {verdict === 'suspicious' && '⚠️ Şüpheli İçerik Tespit Edildi'}
-                    {verdict === 'clean'      && '✅ İçerik Temiz'}
+                    {verdict === 'clean' && '✅ İçerik Temiz'}
                 </p>
 
                 <p className="verdict-hero__sub">

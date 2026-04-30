@@ -127,3 +127,163 @@ body::after {
 @keyframes dash-march {
   to { stroke-dashoffset: -24; }
 }
+
+/* ── Navigation ──────────────────────────────────────────────── */
+.app-header__nav {
+  display: flex;
+  gap: 16px;
+  margin-left: 40px;
+  margin-right: auto;
+}
+
+.nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-fast);
+}
+
+.nav-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.nav-btn.active {
+  color: var(--accent-primary);
+  background: var(--accent-glow);
+}
+
+/* ── Dashboard ──────────────────────────────────────────────── */
+.dashboard-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dashboard-header h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.dashboard-content {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+@media (min-width: 900px) {
+  .dashboard-content {
+    grid-template-columns: 350px 1fr;
+  }
+}
+
+.dashboard-card {
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+}
+
+.dashboard-card h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.scan-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.scan-table th, .scan-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.scan-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scan-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.status-badge, .verdict-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.status-badge.completed { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.status-badge.pending { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.status-badge.failed { background: var(--color-danger-bg); color: var(--color-danger); }
+
+.verdict-badge.clean { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.verdict-badge.malicious { background: var(--color-danger-bg); color: var(--color-danger); border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); }
+.verdict-badge.suspicious { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.verdict-badge.unknown { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
+
+/* ── Print Styles (PDF Export) ─────────────────────────────── */
+@media print {
+  body {
+    background: #050810 !important;
+    color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  
+  /* Hide UI elements */
+  .app-header, .scan-page__header, .scan-tabs, .action-buttons, .scan-page__footer-note {
+    display: none !important;
+  }
+  
+  /* Expand the report container to full page */
+  .scan-page__card {
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  
+  .pdf-target-container {
+    padding: 0 !important;
+  }
+
+  /* Force the AI report text box to have a black background and white text */
+  .ai-report-container {
+    background-color: #0a0f1e !important;
+    border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  }
+  
+  .ai-report-container, .ai-report-container * {
+    color: #f1f5f9 !important;
+  }
+}

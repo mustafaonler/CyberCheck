@@ -1112,3 +1112,205 @@
   background: rgba(239, 68, 68, 0.2);
   border-color: var(--color-danger);
 }
+
+/* ================================================================
+   AI Report (Gemini ReactMarkdown) Styles
+   ================================================================ */
+
+.ai-report-container {
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin: 16px 0;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+  text-align: left;
+  animation: fadeInUp 0.5s 0.15s ease both;
+}
+
+.ai-report-content {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.ai-report-content h1,
+.ai-report-content h2,
+.ai-report-content h3 {
+  color: var(--text-primary);
+  font-weight: 700;
+  margin-top: 1.8rem;
+  margin-bottom: 0.8rem;
+  letter-spacing: -0.01em;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(6, 182, 212, 0.3); /* Neon cyan accent border */
+}
+
+.ai-report-content h1 { font-size: 1.5rem; color: var(--accent-cyan); }
+.ai-report-content h2 { font-size: 1.3rem; color: #38bdf8; }
+.ai-report-content h3 { font-size: 1.15rem; color: var(--text-primary); }
+
+.ai-report-content h4 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-top: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.ai-report-content p {
+  margin-bottom: 1rem;
+}
+
+.ai-report-content ul,
+.ai-report-content ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.ai-report-content li {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.ai-report-content ul li::marker {
+  color: var(--accent-cyan);
+}
+
+.ai-report-content strong {
+  color: var(--text-main);
+}
+
+/* ── Risk Badges ────────────────────────────────────────────── */
+
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-top: 12px;
+  border: 1px solid;
+}
+
+.risk-badge--critical {
+  background: rgba(153, 27, 27, 0.2);
+  border-color: rgba(153, 27, 27, 0.6);
+  color: #fca5a5;
+  box-shadow: 0 0 12px rgba(153, 27, 27, 0.4);
+}
+
+.risk-badge--high {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.risk-badge--medium {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.risk-badge--low {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.risk-badge--unknown {
+  background: rgba(148, 163, 184, 0.15);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #cbd5e1;
+}
+
+.verdict-hero__icon-wrap--critical::before { background: #ef4444; }
+.verdict-hero__icon--critical {
+  background: rgba(153, 27, 27, 0.12);
+  border-color: rgba(153, 27, 27, 0.45);
+  color: #ef4444;
+  box-shadow: 0 0 40px rgba(153, 27, 27, 0.4);
+  animation: bounce-in 0.5s ease both;
+}
+.verdict-hero__label--critical { color: #ef4444; }
+
+.verdict-hero__icon-wrap--high::before { background: var(--color-danger); }
+.verdict-hero__icon--high {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: var(--color-danger);
+  box-shadow: 0 0 32px rgba(239, 68, 68, 0.25);
+  animation: bounce-in 0.5s ease both;
+}
+.verdict-hero__label--high { color: var(--color-danger); }
+
+.verdict-hero__icon-wrap--medium::before { background: var(--color-warning); }
+.verdict-hero__icon--medium {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: var(--color-warning);
+  box-shadow: 0 0 32px rgba(245, 158, 11, 0.25);
+  animation: bounce-in 0.5s ease both;
+}
+.verdict-hero__label--medium { color: var(--color-warning); }
+
+.verdict-hero__icon-wrap--low::before { background: var(--color-success); }
+.verdict-hero__icon--low {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: var(--color-success);
+  box-shadow: 0 0 32px rgba(16, 185, 129, 0.25);
+  animation: bounce-in 0.5s ease both;
+}
+.verdict-hero__label--low { color: var(--color-success); }
+
+.verdict-hero__icon-wrap--unknown::before { background: #94a3b8; }
+.verdict-hero__icon--unknown {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.45);
+  color: #cbd5e1;
+  box-shadow: 0 0 32px rgba(148, 163, 184, 0.25);
+  animation: bounce-in 0.5s ease both;
+}
+.verdict-hero__label--unknown { color: #cbd5e1; }
+
+/* ── PDF Export Button ────────────────────────────────────────── */
+
+.btn-download-pdf {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.1);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6ee7b7;
+  cursor: pointer;
+  transition: all var(--transition-med);
+  animation: fadeInUp 0.4s 0.2s ease both;
+}
+
+.btn-download-pdf:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+}
+
+.btn-download-pdf:active {
+  transform: translateY(0);
+}
+
+.pdf-exporting {
+  /* Temporary styling adjustments when html2canvas captures the DOM */
+  background: #0f172a !important;
+  padding: 24px;
+}

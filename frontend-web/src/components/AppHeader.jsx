@@ -26,7 +26,7 @@ const LogoutIcon = () => (
  *   email     {string}    — logged-in user's email
  *   onLogout  {()=>void}  — called when Çıkış Yap is clicked
  */
-export default function AppHeader({ email, onLogout }) {
+export default function AppHeader({ email, onLogout, currentView, onViewChange }) {
     // Two-letter initials for the avatar
     const initials = email
         ? email.slice(0, 2).toUpperCase()
@@ -39,6 +39,18 @@ export default function AppHeader({ email, onLogout }) {
                 <ShieldIcon />
                 <span className="app-header__brand-name">CyberCheck</span>
             </div>
+
+            {/* Navigation */}
+            <nav className="app-header__nav">
+                <button 
+                    className={`nav-btn ${currentView === 'scan' ? 'active' : ''}`}
+                    onClick={() => onViewChange('scan')}
+                >Yeni Tarama</button>
+                <button 
+                    className={`nav-btn ${currentView === 'dashboard' ? 'active' : ''}`}
+                    onClick={() => onViewChange('dashboard')}
+                >Dashboard</button>
+            </nav>
 
             {/* User info + logout */}
             <div className="app-header__user">

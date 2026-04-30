@@ -10,6 +10,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase }   from './lib/supabase.js';
 import AuthPage       from './pages/AuthPage.jsx';
 import ScanPage       from './pages/ScanPage.jsx';
+import Dashboard      from './pages/Dashboard.jsx';
 import AppHeader      from './components/AppHeader.jsx';
 
 // ── Bootstrap spinner (shown only during the initial session check) ──
@@ -42,9 +43,9 @@ function BootSpinner() {
 // ── App ────────────────────────────────────────────────────────
 
 export default function App() {
-    // null = checking, object = logged in, false = logged out
     const [session,      setSession]      = useState(null);
     const [initializing, setInitializing] = useState(true);
+    const [currentView,  setCurrentView]  = useState('scan'); // 'scan' | 'dashboard'
 
     // ── On mount: read existing session & subscribe to auth events ──
     useEffect(() => {
@@ -89,12 +90,17 @@ export default function App() {
 
     return (
         <>
-            <AppHeader email={userEmail} onLogout={handleLogout} />
-            {/*
-              Pass a className so ScanPage adds top padding to clear the fixed header.
-              The ScanPage itself reads this via its root div.
-            */}
-            <ScanPage headerOffset />
+            <AppHeader 
+                email={userEmail} 
+                onLogout={handleLogout} 
+                currentView={currentView}
+                onViewChange={setCurrentView}
+            />
+            {currentView === 'scan' ? (
+                <ScanPage headerOffset />
+            ) : (
+                <Dashboard headerOffset />
+            )}
         </>
     );
 }
