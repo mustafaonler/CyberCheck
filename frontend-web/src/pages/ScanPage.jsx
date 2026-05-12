@@ -7,6 +7,7 @@ import ErrorBanner from '../components/ErrorBanner.jsx';
 import '../components/ScanPage.css';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 
 const API_BASE = 'http://localhost:5000';
 const POLL_INTERVAL = 3000; // ms between each report fetch
@@ -219,8 +220,22 @@ export default function ScanPage() {
             const vtStatus = json.report?.status;
 
             if (vtStatus === 'completed') {
-                setReport(json.report);
+                const vtReport = json.report;
+                setReport(vtReport);
                 setUiState(STATE.DONE);
+
+                // ── Verdict toast ─────────────────────────────────────────
+                if (vtReport.verdict === 'malicious') {
+                    toast.error('🚨 Kritik tehdit tespit edildi! Bu içerik zararlı.', { duration: 7000 });
+                } else if (vtReport.verdict === 'suspicious') {
+                    toast('⚠️ Şüpheli içerik tespit edildi. Dikkatli olun.', {
+                        duration: 5000,
+                        icon: '⚠️',
+                        style: { borderLeft: '4px solid #f59e0b' },
+                    });
+                } else {
+                    toast.success('✅ İçerik temiz görünüyor.', { duration: 4000 });
+                }
             } else {
                 // queued | in-progress → keep polling
                 setPollCount(attempt);
@@ -232,6 +247,7 @@ export default function ScanPage() {
         } catch (err) {
             if (err.name === 'AbortError') return; // intentional cancel
             console.error('[ScanPage] Poll error:', err.message);
+            toast.error('Rapor alınamadı: ' + (err.message || 'Sunucu yanıt vermedi.'), { duration: 5000 });
             setError({
                 title: 'Rapor alınamadı',
                 message: err.message || 'Sunucu yanıt vermedi.',
@@ -240,7 +256,7 @@ export default function ScanPage() {
         }
     }, []);
 
-    // ── Upload / Scan ──────────────────────────────────────
+    // ── Upload / Scan ─────────────────────────────────────────────
     const handleScan = async () => {
         if (activeTab === 'file' && !file) return;
         if (activeTab === 'url' && !urlInput.trim()) return;
@@ -251,13 +267,24 @@ export default function ScanPage() {
         setReport(null);
         setPollCount(0);
 
+        // ── Loading toast ────────────────────────────────────────────
+        const loadingToastId = toast.loading(
+            activeTab === 'text' ? '🤖 Yapay zeka analiz ediyor…' :
+            activeTab === 'url'  ? '🔍 URL taranıyor…' :
+                                   '📄 Dosya yükleniyor…',
+            { duration: Infinity }
+        );
+
         try {
             abortRef.current = new AbortController();
             let res;
+            const { data: { user } } = await supabase.auth.getUser();
+            const userId = user?.id || '';
 
             if (activeTab === 'file') {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('user_id', userId);
                 res = await fetch(`${API_BASE}/api/scan/upload`, {
                     method: 'POST',
                     body: formData,
@@ -267,7 +294,7 @@ export default function ScanPage() {
                 res = await fetch(`${API_BASE}/api/scan/url`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: urlInput.trim() }),
+                    body: JSON.stringify({ url: urlInput.trim(), user_id: userId }),
                     signal: abortRef.current.signal,
                 });
             } else if (activeTab === 'text') {
@@ -310,29 +337,36 @@ export default function ScanPage() {
                     const { data: { user } } = await supabase.auth.getUser();
                     if (user) {
                         let riskVerdict = 'unknown';
-                        const lower = data.report?.toLowerCase() || '';
-                        if (lower.includes('kritik') || lower.includes('yüksek')) {
+                        const lowerVt = data.report?.toLowerCase() || '';
+                        if (lowerVt.includes('kritik') || lowerVt.includes('yüksek')) {
                             riskVerdict = 'malicious';
-                        } else if (lower.includes('orta') || lower.includes('şüpheli')) {
+                        } else if (lowerVt.includes('orta') || lowerVt.includes('şüpheli')) {
                             riskVerdict = 'suspicious';
-                        } else if (lower.includes('düşük') || lower.includes('temiz')) {
+                        } else if (lowerVt.includes('düşük') || lowerVt.includes('temiz')) {
                             riskVerdict = 'clean';
                         }
 
                         await supabase.from('scans').insert([
                             { 
                                 user_id: user.id,
-                                file_name: "Yapay Zeka Analizi", 
-                                file_size: 0, 
+                                file_name: textInput ? textInput.substring(0, 100) : "Yapay Zeka Analizi", 
+                                file_size: ssFile ? ssFile.size : 0, 
                                 analysis_id: `ai_scan_${Date.now()}_${Math.random().toString(36).substring(7)}`, 
                                 status: 'completed',
                                 verdict: riskVerdict,
-                                stats: { report_content: data.report }
+                                stats: { report_content: data.report },
+                                type: ssFile ? 'image' : 'text'
                             }
                         ]);
+
+                        // ── Dashboard notification toast ────────────────────────
+                        toast('📊 Tarama Dashboard\'a eklendi.', {
+                            duration: 3500,
+                            icon: '📊',
+                        });
                     }
                 } catch (dbErr) {
-                    console.error("Supabase DB kaydı sırasında hata:", dbErr);
+                    console.error("Supabase Kayıt Hatası:", dbErr);
                 }
 
                 return; // handleScan bitti
@@ -345,13 +379,20 @@ export default function ScanPage() {
                 fileName: data.fileName ?? null,
             });
 
-            // Kick off polling immediately
+            // ── Dismiss loading, kick off polling ────────────────────────
+            toast.dismiss(loadingToastId);
+            toast('⏳ VirusTotal analiz ediyor, sonuç bekleniyor…', {
+                duration: 4000,
+                icon: '⏳',
+            });
             setUiState(STATE.POLLING);
             fetchReport(data.analysisId, 1);
 
         } catch (err) {
             if (err.name === 'AbortError') return;
             console.error('[ScanPage] Upload error:', err.message);
+            toast.dismiss(loadingToastId);
+            toast.error(err.message || 'Sunucuya bağlanılamadı.', { duration: 5000 });
             setError({
                 title: 'Analiz başlatılamadı',
                 message: err.message || 'Sunucuya bağlanılamadı. Backend API bulunamıyor olabilir.',

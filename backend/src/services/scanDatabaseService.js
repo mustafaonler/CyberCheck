@@ -13,17 +13,21 @@ const { pool } = require('../config/db');
  * @param {string} params.analysisId   - VirusTotal analysis ID returned after upload.
  * @returns {Promise<object>} The newly created row.
  */
-const createScanRecord = async ({ fileName, fileSize, analysisId }) => {
+const createScanRecord = async ({ userId, fileName, fileSize, analysisId, type = 'text' }) => {
+    // Gemini-only scans have no VT analysis ID and are immediately 'completed'
+    const initialStatus = analysisId ? 'queued' : 'completed';
+
     const sql = `
-        INSERT INTO scans (file_name, file_size, analysis_id, status)
-        VALUES ($1, $2, $3, 'queued')
+        INSERT INTO scans (user_id, file_name, file_size, analysis_id, status, type)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *;
     `;
-    const values = [fileName, fileSize, analysisId];
+    const values = [userId, fileName, fileSize, analysisId, initialStatus, type];
 
     const { rows } = await pool.query(sql, values);
     return rows[0];
 };
+
 
 /**
  * Updates an existing scan record with the final VirusTotal results.

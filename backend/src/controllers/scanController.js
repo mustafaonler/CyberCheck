@@ -1,7 +1,7 @@
 // controllers/scanController.js
 // Orchestrates file scanning via VirusTotal and persists results to Supabase.
 
-const { scanFileWithVirusTotal, scanUrl, getAnalysisReport } = require('../services/virusTotalService');
+const { scanFileWithVirusTotal, scanUrl, getAnalysisReport, getUrlMetadata } = require('../services/virusTotalService');
 const { analyzeContent } = require('../services/geminiService');
 const {
     createScanRecord,
@@ -11,6 +11,31 @@ const {
 } = require('../services/scanDatabaseService');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// MIME types that map to the 'document' scan type
+const DOCUMENT_MIME_TYPES = new Set([
+    'application/pdf',
+    'application/msword',                                                        // .doc
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',   // .docx
+    'application/vnd.ms-excel',                                                  // .xls
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',         // .xlsx
+    'application/vnd.ms-powerpoint',                                             // .ppt
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+    'text/plain',          // .txt
+    'text/csv',            // .csv
+    'application/rtf',     // .rtf
+    'text/rtf',
+]);
+
+const determineScanType = (req) => {
+    if (req.body && req.body.url) return 'url';
+    if (req.file) {
+        const mime = req.file.mimetype;
+        if (mime.startsWith('image/'))    return 'image';
+        if (DOCUMENT_MIME_TYPES.has(mime)) return 'document';
+    }
+    return 'text';
+};
 
 /**
  * Parses raw VirusTotal attributes into a clean, frontend-friendly summary.
@@ -68,6 +93,7 @@ exports.uploadImage = async (req, res) => {
         }
 
         const { buffer, originalname, size } = req.file;
+        const userId = req.body.user_id;
 
         console.log(`[ScanController] Received "${originalname}" (${size} bytes). Forwarding to VirusTotal...`);
 
@@ -80,9 +106,11 @@ exports.uploadImage = async (req, res) => {
         let dbRecord = null;
         try {
             dbRecord = await createScanRecord({
+                userId,
                 fileName:   originalname,
                 fileSize:   size,
                 analysisId,
+                type:  determineScanType(req)
             });
             console.log(`[ScanController] DB record created (id=${dbRecord?.id}, analysisId=${analysisId}).`);
         } catch (dbError) {
@@ -144,13 +172,34 @@ exports.getReport = async (req, res) => {
         // ── Step 2: Update DB record when analysis is finished ────────────────
         let dbRecord = null;
         try {
-            // Only write full results when VirusTotal says it's done
             if (vtStatus === 'completed') {
+                // For URL scans: fetch enriched metadata (categories, SSL, title…)
+                // in parallel — failure is non-fatal, we just omit url_meta
+                let urlMeta = null;
+                try {
+                    // We need the original URL; it is stored in the DB file_name column
+                    const existingRecord = await getScanByAnalysisId(id);
+                    const isUrlScan = existingRecord?.type === 'url';
+                    if (isUrlScan && existingRecord?.file_name) {
+                        urlMeta = await getUrlMetadata(existingRecord.file_name);
+                        if (urlMeta) {
+                            console.log(`[ScanController] URL metadata enriched for analysisId=${id}.`);
+                        }
+                    }
+                } catch (metaErr) {
+                    console.warn(`[ScanController] URL metadata fetch skipped: ${metaErr.message}`);
+                }
+
+                // Merge url_meta into the stats blob
+                const enrichedStats = urlMeta
+                    ? { ...report.stats, url_meta: urlMeta }
+                    : report.stats;
+
                 dbRecord = await updateScanRecord({
                     analysisId: id,
                     status:     'completed',
                     verdict:    report.verdict,
-                    stats:      report.stats,
+                    stats:      enrichedStats,
                 });
                 console.log(`[ScanController] DB record updated to 'completed' (analysisId=${id}).`);
             } else if (dbStatus !== 'queued') {
@@ -221,7 +270,7 @@ exports.getScanHistory = async (req, res) => {
  */
 exports.handleUrlScan = async (req, res) => {
     try {
-        const { url } = req.body;
+        const { url, user_id: userId } = req.body;
 
         if (!url || typeof url !== 'string' || !url.trim()) {
             return res.status(400).json({
@@ -242,9 +291,11 @@ exports.handleUrlScan = async (req, res) => {
         let dbRecord = null;
         try {
             dbRecord = await createScanRecord({
+                userId,
                 fileName:   trimmedUrl,   // store the URL as the "file_name" for display
                 fileSize:   0,
                 analysisId,
+                type:  determineScanType(req)
             });
             console.log(`[ScanController] DB record created for URL (id=${dbRecord?.id}, analysisId=${analysisId}).`);
         } catch (dbError) {
@@ -285,8 +336,9 @@ exports.handleUrlScan = async (req, res) => {
  */
 exports.handleTextScan = async (req, res) => {
     try {
-        const text  = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
-        const image = req.file ?? null;
+        const text   = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+        const image  = req.file ?? null;
+        const userId = req.body?.user_id ?? null;
 
         // ── Guard: need at least one input ────────────────────────────────────
         if (!text && !image) {
@@ -304,14 +356,39 @@ exports.handleTextScan = async (req, res) => {
         // ── Step 1: Analyze content with Gemini ───────────────────────────────
         const aiReport = await analyzeContent(text, imageBuffer, mimeType);
 
-        // ── Step 2: Return the AI Report ──────────────────────────────────────
+        // ── Step 2: Persist the scan record to database ───────────────────────
+        let dbRecord = null;
+        try {
+            // Determine a meaningful display name for the record
+            const displayName = image?.originalname
+                ?? (text.length > 80 ? text.substring(0, 80) + '…' : text)
+                ?? 'AI Analysis';
+
+            const scanType = image
+                ? determineScanType(req)   // 'image' or 'document'
+                : 'text';
+
+            dbRecord = await createScanRecord({
+                userId,
+                fileName:   displayName,
+                fileSize:   image?.size ?? 0,
+                analysisId: null,          // no VT analysis ID for Gemini-only scans
+                type:       scanType,
+            });
+            console.log(`[ScanController] DB record created for AI scan (id=${dbRecord?.id}, type=${scanType}).`);
+        } catch (dbError) {
+            console.error('[ScanController] Dosya Kayıt Hatası:', dbError);
+        }
+
+        // ── Step 3: Return the AI Report ──────────────────────────────────────
         return res.status(200).json({
             success: true,
             mode: 'gemini_analysis',
             data: {
-                report: aiReport,
-                fileName: image?.originalname ?? null,
-                fileSizeBytes: image?.size ?? null
+                scanId:        dbRecord?.id ?? null,
+                report:        aiReport,
+                fileName:      image?.originalname ?? null,
+                fileSizeBytes: image?.size ?? null,
             },
         });
 
