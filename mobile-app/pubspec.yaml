@@ -10,7 +10,24 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # ── UI & Tipografi ──────────────────────────────────────────────
   cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1          # Web tarafındaki Inter/JetBrains Mono tipografisi
+
+  # ── Yönlendirme ────────────────────────────────────────────────
+  go_router: ^14.2.7            # Bildirimsel sayfa yönlendirme
+
+  # ── Backend & Auth ─────────────────────────────────────────────
+  supabase_flutter: ^2.5.6      # Supabase Auth + Veritabanı entegrasyonu
+  http: ^1.2.1                  # Backend REST API istekleri
+
+  # ── Dosya & Medya İşlemleri ─────────────────────────────────────
+  file_picker: ^8.0.7           # PDF, belge, dosya seçimi
+  image_picker: ^1.1.2          # Ekran görüntüsü / galeri erişimi
+
+  # ── Ortam Değişkenleri ──────────────────────────────────────────
+  flutter_dotenv: ^5.1.0        # .env dosyasından API anahtarlarını okuma
 
 dev_dependencies:
   flutter_test:
@@ -19,3 +36,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Çevresel değişkenlerimize okuma izni veriyoruz
+  assets:
+    - .env

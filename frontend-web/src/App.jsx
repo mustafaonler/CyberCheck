@@ -3,9 +3,11 @@
 //
 // Flow:
 //   initializing → (Supabase session check) →
-//     ├─ not logged in  → <AuthPage>
-//     └─ logged in      → Router → /        → <AppHeader> + <ScanPage>
+//     ├─ not logged in  → Router → /       → <LandingPage>
+//     │                             /login  → <AuthPage>
+//     └─ logged in      → Router → /        → redirect → /dashboard
 //                                  /dashboard → <AppHeader> + <Dashboard>
+//                                  /scan      → <AppHeader> + <ScanPage>
 //                                  /report/:id → <ReportPage> (standalone)
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -19,6 +21,7 @@ import {
 } from 'react-router-dom';
 import { supabase }   from './lib/supabase.js';
 import AuthPage       from './pages/AuthPage.jsx';
+import LandingPage    from './pages/LandingPage.jsx';
 import ScanPage       from './pages/ScanPage.jsx';
 import Dashboard      from './pages/Dashboard.jsx';
 import ReportPage     from './pages/ReportPage.jsx';
@@ -75,7 +78,7 @@ function AuthenticatedApp({ userEmail, onLogout }) {
     const currentView = location.pathname.startsWith('/dashboard') ? 'dashboard' : 'scan';
 
     const handleViewChange = (view) => {
-        navigate(view === 'dashboard' ? '/dashboard' : '/');
+        navigate(view === 'dashboard' ? '/dashboard' : '/scan');
     };
 
     return (
@@ -90,12 +93,27 @@ function AuthenticatedApp({ userEmail, onLogout }) {
                 />
             )}
             <Routes>
-                <Route path="/"            element={<ScanPage headerOffset />} />
+                {/* Authenticated root → dashboard */}
+                <Route path="/"            element={<Navigate to="/dashboard" replace />} />
+                <Route path="/login"       element={<Navigate to="/dashboard" replace />} />
+                <Route path="/scan"        element={<ScanPage headerOffset />} />
                 <Route path="/dashboard"   element={<Dashboard headerOffset />} />
                 <Route path="/report/:id"  element={<ReportPage />} />
-                <Route path="*"            element={<Navigate to="/" replace />} />
+                <Route path="*"            element={<Navigate to="/dashboard" replace />} />
             </Routes>
         </>
+    );
+}
+
+// ── Public layout (landing + auth pages) ─────────────────────────────────────
+
+function PublicApp({ onAuthSuccess }) {
+    return (
+        <Routes>
+            <Route path="/"      element={<LandingPage />} />
+            <Route path="/login" element={<AuthPage onAuthSuccess={onAuthSuccess} />} />
+            <Route path="*"      element={<Navigate to="/" replace />} />
+        </Routes>
     );
 }
 
@@ -129,7 +147,7 @@ export default function App() {
             <Toaster position="bottom-right" toastOptions={TOASTER_OPTS} />
 
             {!session ? (
-                <AuthPage onAuthSuccess={handleAuthSuccess} />
+                <PublicApp onAuthSuccess={handleAuthSuccess} />
             ) : (
                 <AuthenticatedApp
                     userEmail={session.user?.email ?? ''}

@@ -4,3 +4,6 @@
 .packages
 build/
 pubspec.lock
+
+# Ortam değişkenleri — asla commit'leme!
+.env
