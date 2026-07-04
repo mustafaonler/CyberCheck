@@ -18,16 +18,13 @@ Her saniye milyonlarca yeni oltalama (phishing) e-postası, gizlenmiş fidye yaz
 
 Profesyonel Siber Güvenlik Operasyon Merkezlerinden (SOC) ilham alınarak tasarlanan web arayüzümüz, güvenlik analistlerine ve son kullanıcılara anlık, panoramik bir tehdit izleme deneyimi sunar.
 
-![Web Ana Dashboard](<img width="1901" height="906" alt="image" src="https://github.com/user-attachments/assets/fc417081-bedd-48fc-96c3-521972ac1955" />
-)
+![Web Ana Dashboard](https://github.com/user-attachments/assets/fc417081-bedd-48fc-96c3-521972ac1955)
 
-![Web Analiz Sonucu](<img width="1912" height="821" alt="image" src="https://github.com/user-attachments/assets/7ea593c0-767a-4d77-aad4-eaea3af8e5fe" />
-)
+![Web Analiz Sonucu](https://github.com/user-attachments/assets/7ea593c0-767a-4d77-aad4-eaea3af8e5fe)
 
-![Web Raporlama Sistemi](<img width="1893" height="845" alt="image" src="https://github.com/user-attachments/assets/04ae3cdc-9ffd-45b8-b5c6-74379139027a" />
-)
-<img width="1896" height="818" alt="image" src="https://github.com/user-attachments/assets/cfd364e2-5ddd-43fb-9da0-243ba1ace36b" />
+![Web Raporlama Sistemi](https://github.com/user-attachments/assets/04ae3cdc-9ffd-45b8-b5c6-74379139027a)
 
+![Web Detay](https://github.com/user-attachments/assets/cfd364e2-5ddd-43fb-9da0-243ba1ace36b)
 
 ---
 
@@ -35,12 +32,11 @@ Profesyonel Siber Güvenlik Operasyon Merkezlerinden (SOC) ilham alınarak tasar
 
 Gerçek siber güvenliğin mekandan bağımsız olması gerektiği inancıyla inşa edilen mobil uygulamamız; hareket halindeyken bile siber istihbarat ağlarına tam erişim, anlık tarama ve "Fail-Safe" (Hata anında güvenli kalma) mimarisiyle kesintisiz koruma sağlar.
 
-![Mobil Ana Ekran](<img width="501" height="797" alt="image" src="https://github.com/user-attachments/assets/a9086c9f-a88e-40e4-99c0-02acbefba131" />
-)
+![Mobil Ana Ekran](https://github.com/user-attachments/assets/a9086c9f-a88e-40e4-99c0-02acbefba131)
 
-![Mobil Sonuç Ekranı](<img width="496" height="797" alt="image" src="https://github.com/user-attachments/assets/1ade9d37-8cc4-462e-b2fb-74de42925161" />
-)
-<img width="497" height="797" alt="image" src="https://github.com/user-attachments/assets/0c2602c6-148d-4a7e-92be-4dac6d402458" />
+![Mobil Sonuç Ekranı](https://github.com/user-attachments/assets/1ade9d37-8cc4-462e-b2fb-74de42925161)
+
+![Mobil Detay](https://github.com/user-attachments/assets/0c2602c6-148d-4a7e-92be-4dac6d402458)
 
 ---
 
@@ -53,6 +49,27 @@ Bu proje, yüksek trafikli güvenlik analizlerini kaldırabilmesi için modern, 
 * **Veritabanı ve Güvenli Kimlik Doğrulama:** Supabase (PostgreSQL, Row Level Security)
 * **Frontend (Web):** React.js, Tailwind CSS, Vite
 * **Frontend (Mobil):** Flutter, GoRouter, fl_chart (Dinamik Veri Görselleştirme), printing (PDF Raporlama)
+
+---
+
+## ⚙️ Kurulum ve Çalıştırma
+
+Projeyi lokalinizde test etmek için aşağıdaki adımları izleyin:
+
+```bash
+# 1. Depoyu Klonlayın
+git clone [https://github.com/mustafaonler/CyberCheck.git](https://github.com/mustafaonler/CyberCheck.git)
+cd CyberCheck
+
+# 2. Backend'i Başlatın
+cd backend
+npm install
+npm start # (Not: .env dosyasındaki API key'leri tanımlanmalıdır)
+
+# 3. Web Arayüzünü Başlatın
+cd ../frontend-web
+npm install
+npm run dev
 
 # 4. Mobil Uygulamayı Başlatın
 cd ../mobile-app
