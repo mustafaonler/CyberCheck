@@ -19,12 +19,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/scan_screen.dart';
+import 'screens/result_screen.dart';
+import 'screens/history_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/register_screen.dart';
 import 'utils/constants.dart';
 
 // ── GoRouter ──────────────────────────────────────────────────────────────────
@@ -34,17 +38,22 @@ final GoRouter _router = GoRouter(
   debugLogDiagnostics: true, // geliştirme sırasında rota loglarını göster
 
   routes: [
-    // Geçici ana rota — ileride auth redirect + SplashScreen eklenecek
+    // Ana karşılama ekranı — Giriş Yap / Kayıt Ol
     GoRoute(
       path: '/',
       name: 'home',
-      builder: (context, state) => const _HomeScreen(),
+      builder: (context, state) => const _LandingScreen(),
     ),
 
     GoRoute(
       path: AppConstants.routeLogin,
       name: 'login',
       builder: (context, state) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/register',
+      name: 'register',
+      builder: (context, state) => const RegisterScreen(),
     ),
     GoRoute(
       path: AppConstants.routeDashboard,
@@ -55,6 +64,26 @@ final GoRouter _router = GoRouter(
       path: AppConstants.routeScan,
       name: 'scan',
       builder: (context, state) => const ScanScreen(),
+    ),
+    GoRoute(
+      path: '/result',
+      name: 'result',
+      builder: (context, state) {
+        final data = state.extra as ScanResultData?;
+        if (data == null) {
+          Future.microtask(() => context.go('/scan'));
+          return const Scaffold(
+            backgroundColor: Color(0xFF050810),
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return ResultScreen(data: data);
+      },
+    ),
+    GoRoute(
+      path: '/history',
+      name: 'history',
+      builder: (context, state) => const HistoryScreen(),
     ),
     GoRoute(
       path: AppConstants.routeProfile,
@@ -105,6 +134,15 @@ class CyberCheckApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'CyberCheck',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('tr', 'TR'),
+      supportedLocales: const [
+        Locale('tr', 'TR'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       routerConfig: _router,
       theme: _buildTheme(),
     );
@@ -237,103 +275,275 @@ class CyberCheckApp extends StatelessWidget {
   }
 }
 
-// ── Geçici Ana Ekran ──────────────────────────────────────────────────────────
-// Sonraki adımda LoginScreen ile değiştirilecek.
+// ── Karşılama Ekranı ──────────────────────────────────────────────────────────
 
-class _HomeScreen extends StatelessWidget {
-  const _HomeScreen();
+class _LandingScreen extends StatefulWidget {
+  const _LandingScreen();
+
+  @override
+  State<_LandingScreen> createState() => _LandingScreenState();
+}
+
+class _LandingScreenState extends State<_LandingScreen>
+    with TickerProviderStateMixin {
+  late final AnimationController _fadeCtrl;
+  late final AnimationController _pulseCtrl;
+  late final Animation<double>   _fadeAnim;
+  late final Animation<Offset>   _slideAnim;
+  late final Animation<double>   _pulseAnim;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Sayfa giriş animasyonu
+    _fadeCtrl = AnimationController(
+      vsync:    this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end:   Offset.zero,
+    ).animate(CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut));
+
+    // Kalkan ikonu nabız animasyonu
+    _pulseCtrl = AnimationController(
+      vsync:    this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+    );
+
+    _fadeCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final tt = Theme.of(context).textTheme;
-    final cs = Theme.of(context).colorScheme;
-
     return Scaffold(
+      backgroundColor: const Color(0xFF020617),
       body: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Shield ikonu
-              Container(
-                width: 80, height: 80,
-                decoration: BoxDecoration(
-                  color:        cs.primary.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: cs.primary.withOpacity(0.3)),
-                ),
-                child: Icon(Icons.security_rounded, size: 40, color: cs.primary),
-              ),
-
-              const SizedBox(height: 24),
-
-              Text('CyberCheck', style: tt.displayMedium),
-
-              const SizedBox(height: 8),
-
-              Text(
-                'Siber Güvenlik Kontrol Paneli',
-                style: tt.bodyMedium,
-              ),
-
-              const SizedBox(height: 32),
-
-              // Versiyon etiketi
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(
-                  color:        cs.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: cs.primary.withOpacity(0.25)),
-                ),
-                child: Text(
-                  'v1.0.0 — Mimari Hazır ✓',
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 11,
-                    color:    cs.primary.withOpacity(0.8),
-                    fontWeight: FontWeight.w500,
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: SlideTransition(
+            position: _slideAnim,
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildShieldIcon(),
+                      const SizedBox(height: 32),
+                      _buildBranding(),
+                      const SizedBox(height: 48),
+                      _buildActionButtons(context),
+                      const SizedBox(height: 40),
+                      _buildSecurityBadges(),
+                    ],
                   ),
                 ),
               ),
-
-              const SizedBox(height: 48),
-
-              // Rotaları test et
-              Text('Rotaları Test Et', style: tt.labelSmall),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  _NavChip(label: 'Login',     route: AppConstants.routeLogin),
-                  _NavChip(label: 'Dashboard', route: AppConstants.routeDashboard),
-                  _NavChip(label: 'Scan',      route: AppConstants.routeScan),
-                  _NavChip(label: 'Profile',   route: AppConstants.routeProfile),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
-}
 
-class _NavChip extends StatelessWidget {
-  const _NavChip({required this.label, required this.route});
-  final String label;
-  final String route;
+  // ── Kalkan ikonu — nabız efektli ─────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      label:         Text(label),
-      onPressed:     () => context.go(route),
-      backgroundColor: const Color(0xFF1E293B),
-      labelStyle: GoogleFonts.inter(
-        fontSize: 12, color: const Color(0xFF94A3B8),
-      ),
-      side: const BorderSide(color: Color(0x1494A3B8)),
+  Widget _buildShieldIcon() {
+    return AnimatedBuilder(
+      animation: _pulseAnim,
+      builder: (context, child) {
+        return Container(
+          width:  100,
+          height: 100,
+          decoration: BoxDecoration(
+            color:        const Color(0xFF3B82F6).withValues(alpha: 0.10 * _pulseAnim.value),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: const Color(0xFF3B82F6).withValues(alpha: 0.35 * _pulseAnim.value),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color:       const Color(0xFF3B82F6).withValues(alpha: 0.25 * _pulseAnim.value),
+                blurRadius:  32 * _pulseAnim.value,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.security_rounded,
+            size:  48,
+            color: Color(0xFF3B82F6),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Marka ismi ve alt başlık ──────────────────────────────────────────────
+
+  Widget _buildBranding() {
+    return Column(
+      children: [
+        Text(
+          'CyberCheck',
+          style: GoogleFonts.inter(
+            fontSize:      40,
+            fontWeight:    FontWeight.w800,
+            color:         const Color(0xFFF1F5F9),
+            letterSpacing: -1.0,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Siber güvenliğinizi\nbir adım öne taşıyın.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.inter(
+            fontSize:   15,
+            fontWeight: FontWeight.w400,
+            color:      const Color(0xFF64748B),
+            height:     1.6,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Aksiyon butonları — Giriş Yap + Kayıt Ol ─────────────────────────────
+
+  Widget _buildActionButtons(BuildContext context) {
+    return Column(
+      children: [
+        // Giriş Yap — Dolu (birincil)
+        SizedBox(
+          width:  double.infinity,
+          height: 54,
+          child: ElevatedButton(
+            onPressed: () => context.go(AppConstants.routeLogin),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B82F6),
+              foregroundColor: Colors.white,
+              elevation:       0,
+              shadowColor:     Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ).copyWith(
+              overlayColor: WidgetStateProperty.resolveWith((s) {
+                if (s.contains(WidgetState.pressed)) {
+                  return Colors.white.withValues(alpha: 0.15);
+                }
+                return Colors.white.withValues(alpha: 0.06);
+              }),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.login_rounded, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Giriş Yap',
+                  style: GoogleFonts.inter(
+                    fontSize:   16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // Kayıt Ol — Kenarlıklı (ikincil)
+        SizedBox(
+          width:  double.infinity,
+          height: 54,
+          child: OutlinedButton(
+            onPressed: () => context.go('/register'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF3B82F6),
+              side: const BorderSide(
+                color: Color(0xFF3B82F6),
+                width: 1.5,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              backgroundColor: const Color(0xFF3B82F6).withValues(alpha: 0.06),
+            ).copyWith(
+              overlayColor: WidgetStateProperty.resolveWith((s) {
+                if (s.contains(WidgetState.pressed)) {
+                  return const Color(0xFF3B82F6).withValues(alpha: 0.15);
+                }
+                return const Color(0xFF3B82F6).withValues(alpha: 0.04);
+              }),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.person_add_rounded, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Kayıt Ol',
+                  style: GoogleFonts.inter(
+                    fontSize:   16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Güvenlik rozetleri ────────────────────────────────────────────────────
+
+  Widget _buildSecurityBadges() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _badge(Icons.lock_outline_rounded, 'Şifreli Bağlantı'),
+        const SizedBox(width: 20),
+        _badge(Icons.verified_user_rounded, 'Güvenli Auth'),
+        const SizedBox(width: 20),
+        _badge(Icons.shield_outlined, 'Veri Gizliliği'),
+      ],
+    );
+  }
+
+  Widget _badge(IconData icon, String label) {
+    return Column(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF475569)),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize:   9.5,
+            color:      const Color(0xFF475569),
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ],
     );
   }
 }

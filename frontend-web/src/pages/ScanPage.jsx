@@ -328,7 +328,11 @@ export default function ScanPage() {
                 setReport({
                     status: 'completed',
                     isGemini: true,
-                    aiReport: data.report
+                    aiReport: data.report,
+                    // Backend'den gelen server-side parse sonuçları
+                    backendRiskScore:  data.risk_score   ?? null,
+                    backendRiskLevel:  data.risk_level   ?? null,
+                    backendVerdict:    data.verdict      ?? null,
                 });
                 setUiState(STATE.DONE);
 
@@ -675,109 +679,13 @@ function VerdictReport({ report, uploadData, onReset }) {
     const reportRef = useRef(null);
 
     if (report.isGemini) {
-        const aiText = report.aiReport || "";
-
-        let riskLevel = 'Bilinmiyor';
-        let riskVariant = 'unknown';
-
-        // Extract Risk Level robustly
-        const lowerText = aiText.toLowerCase();
-        if (lowerText.includes('kritik')) {
-            riskLevel = 'Kritik';
-            riskVariant = 'critical';
-        } else if (lowerText.includes('yüksek')) {
-            riskLevel = 'Yüksek';
-            riskVariant = 'high';
-        } else if (lowerText.includes('orta')) {
-            riskLevel = 'Orta';
-            riskVariant = 'medium';
-        } else if (lowerText.includes('düşük')) {
-            riskLevel = 'Düşük';
-            riskVariant = 'low';
-        }
-
-        const handleDownloadPDF = () => {
-            // Using window.print() leverages the browser's native print-to-PDF
-            // functionality, which perfectly handles complex CSS, glassmorphism, 
-            // and Tailwind classes that html2canvas struggles with.
-            window.print();
-        };
-
         return (
-            <div className="verdict-report-wrapper">
-                <div id="pdf-report-container" ref={reportRef} className="pdf-target-container print:bg-white print:text-black print:shadow-none print:border print:border-gray-300 [&_*]:print:text-black" style={{ padding: '24px', borderRadius: '12px' }}>
-                    <div className="verdict-hero">
-                        <div className={`verdict-hero__icon-wrap verdict-hero__icon-wrap--${riskVariant}`}>
-                            <div className={`verdict-hero__icon verdict-hero__icon--${riskVariant}`}>
-                                {(riskVariant === 'critical' || riskVariant === 'high') ? <AlertTriangleIcon /> : <CheckIcon />}
-                            </div>
-                        </div>
-
-                        <p className={`verdict-hero__label verdict-hero__label--${riskVariant}`}>
-                            {riskVariant === 'critical' && '⚠️ Kritik Risk Tespit Edildi!'}
-                            {riskVariant === 'high' && '⚠️ Yüksek Risk Tespit Edildi'}
-                            {riskVariant === 'medium' && '⚠️ Orta Düzey Risk Tespit Edildi'}
-                            {riskVariant === 'low' && '✅ İçerik Temiz Görünüyor'}
-                            {riskVariant === 'unknown' && 'Yapay Zeka Analiz Raporu'}
-                        </p>
-
-                        <div className={`risk-badge risk-badge--${riskVariant}`}>
-                            Risk Seviyesi: <strong>{riskLevel}</strong>
-                        </div>
-                    </div>
-
-                    <div className="divider" />
-
-                    <div className="ai-report-container">
-                        <div className="ai-report-content">
-                            <ReactMarkdown>{aiText}</ReactMarkdown>
-                        </div>
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* File meta */}
-                    {uploadData?.fileName && (
-                        <div className="report-meta">
-                            <div className="report-meta__row">
-                                <span className="report-meta__label">Görsel</span>
-                                <span className="report-meta__value" title={uploadData.fileName}>
-                                    {uploadData.fileName}
-                                </span>
-                            </div>
-                            {uploadData?.fileSizeBytes != null && (
-                                <div className="report-meta__row">
-                                    <span className="report-meta__label">Boyut</span>
-                                    <span className="report-meta__value">
-                                        {formatBytes(uploadData.fileSizeBytes)}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                <div className="action-buttons print:hidden" style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-                    <button
-                        className="btn-download-pdf print:hidden"
-                        onClick={handleDownloadPDF}
-                        aria-label="Raporu İndir (PDF)"
-                    >
-                        <DownloadIcon />
-                        Raporu İndir (PDF)
-                    </button>
-                    <button
-                        id="btn-new-scan"
-                        className="btn-new-scan"
-                        onClick={onReset}
-                        aria-label="Yeni tarama başlat"
-                        data-html2canvas-ignore="true"
-                    >
-                        <RefreshIcon />
-                        Yeni Tarama
-                    </button>
-                </div>
-            </div>
+            <GeminiReport
+                report={report}
+                uploadData={uploadData}
+                onReset={onReset}
+                reportRef={reportRef}
+            />
         );
     }
 
@@ -924,6 +832,525 @@ function StatCell({ variant, label, value, pct }) {
                     aria-valuemin={0}
                     aria-valuemax={100}
                 />
+            </div>
+        </div>
+    );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── Gemini AI Rapor Bileşeni (infografik tasarım) ─────────────
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Gemini'nin döndürdüğü uzun ham metni 4 mantıksal bölüme ayırır.
+ * Döndürdüğü nesne: { riskLevel, riskVariant, tactics, detailedAnalysis, advice, raw }
+ */
+function parseGeminiReport(text) {
+    if (!text) return { riskLevel: 'Bilinmiyor', riskVariant: 'unknown', tactics: [], detailedAnalysis: '', advice: '', raw: '' };
+
+    const lower = text.toLowerCase();
+
+    // ── Risk seviyesi tespiti ───────────────────────────────────────────
+    let riskLevel = 'Bilinmiyor';
+    let riskVariant = 'unknown';
+    if (lower.includes('kritik'))       { riskLevel = 'Kritik';    riskVariant = 'critical'; }
+    else if (lower.includes('yüksek')) { riskLevel = 'Yüksek';    riskVariant = 'high'; }
+    else if (lower.includes('orta'))   { riskLevel = 'Orta';      riskVariant = 'medium'; }
+    else if (lower.includes('düşük'))  { riskLevel = 'Düşük';     riskVariant = 'low'; }
+
+    // ── Taktik çıkarma: önce Gemini bölümü, sonra keyword taraması ─────
+    const tactics = new Set();
+
+    // 1) "Tespit Edilen Taktikler" veya "2." bölümünü bul
+    const sectionRe = /(?:tespit edilen taktikler|detected tactics|2\.)([\s\S]*?)(?:\n\s*\n|\n\s*\d\.|\n##|\n\*\*\d|$)/i;
+    const sectionMatch = sectionRe.exec(text);
+    if (sectionMatch) {
+        const body = sectionMatch[1];
+        body.split('\n').forEach(line => {
+            const clean = line.replace(/^[\s\-•*\d.]+/, '').replace(/\*\*/g, '').trim();
+            if (clean.length > 2 && clean.length < 70) tactics.add(clean);
+        });
+    }
+
+    // 2) Keyword taraması (fallback + ek taktikler)
+    const kwMap = {
+        'phishing':           '🎣 Kimlik Avı',
+        'kimlik avı':         '🎣 Kimlik Avı',
+        'sosyal mühendislik': '🧠 Sosyal Mühendislik',
+        'social engineering': '🧠 Sosyal Mühendislik',
+        'aciliyet':           '⏰ Aciliyet Hissi',
+        'urgency':            '⏰ Aciliyet Hissi',
+        'sahte':              '🎭 Sahte İçerik',
+        'otorite':            '🎭 Otorite Taklidi',
+        'parola':             '🔓 Parola Çalma',
+        'şifre':              '🔓 Parola Çalma',
+        'credential':         '🔓 Kimlik Bilgisi',
+        'malware':            '🦠 Kötü Amaçlı Yazılım',
+        'kötü amaçlı':       '🦠 Kötü Amaçlı Yazılım',
+        'ransomware':         '🔒 Fidye Yazılımı',
+        'trojan':             '🐴 Truva Atı',
+        'scam':               '💸 Dolandırıcılık',
+        'spam':               '📧 Spam',
+        'backdoor':           '🚪 Arka Kapı',
+        'exploit':            '⚡ Güvenlik Açığı',
+        'spyware':            '👁️ Casus Yazılım',
+    };
+    Object.entries(kwMap).forEach(([kw, label]) => {
+        if (lower.includes(kw)) tactics.add(label);
+    });
+
+    // ── Detaylı Analiz bölümü ───────────────────────────────────────────
+    const detailedRe = /(?:detayl[ıi]\s*analiz|detailed analysis|3\.)([\s\S]*?)(?:\n\s*\n(?=\s*(?:\d+\.|##|\*\*\d))|\n##|\nkullan[ıi]c[ıi]ya|\n4\.|$)/i;
+    const detailedMatch = detailedRe.exec(text);
+    const detailedAnalysis = detailedMatch ? detailedMatch[1].trim() : '';
+
+    // ── Tavsiye bölümü ──────────────────────────────────────────────────
+    const adviceRe = /(?:kullan[ıi]c[ıi]ya\s*tavsiye|öneri|recommendation|4\.)([\s\S]*?)$/i;
+    const adviceMatch = adviceRe.exec(text);
+    const advice = adviceMatch ? adviceMatch[1].trim() : '';
+
+    return {
+        riskLevel,
+        riskVariant,
+        tactics: Array.from(tactics).slice(0, 12), // max 12 rozet
+        detailedAnalysis,
+        advice,
+        raw: text,
+    };
+}
+
+/** Risk seviyesine göre CSS renk token'ı döndürür */
+const RISK_STYLES = {
+    critical: {
+        border: 'rgba(239,68,68,0.5)',
+        glow:   'rgba(239,68,68,0.2)',
+        bg:     'rgba(239,68,68,0.08)',
+        text:   '#ef4444',
+        badge:  'rgba(239,68,68,0.15)',
+        label:  '⚠️ Kritik Risk Tespit Edildi!',
+    },
+    high: {
+        border: 'rgba(239,68,68,0.4)',
+        glow:   'rgba(239,68,68,0.15)',
+        bg:     'rgba(239,68,68,0.06)',
+        text:   '#f87171',
+        badge:  'rgba(239,68,68,0.12)',
+        label:  '⚠️ Yüksek Risk Tespit Edildi',
+    },
+    medium: {
+        border: 'rgba(245,158,11,0.4)',
+        glow:   'rgba(245,158,11,0.15)',
+        bg:     'rgba(245,158,11,0.06)',
+        text:   '#f59e0b',
+        badge:  'rgba(245,158,11,0.12)',
+        label:  '⚠️ Orta Düzey Risk Tespit Edildi',
+    },
+    low: {
+        border: 'rgba(16,185,129,0.4)',
+        glow:   'rgba(16,185,129,0.15)',
+        bg:     'rgba(16,185,129,0.06)',
+        text:   '#10b981',
+        badge:  'rgba(16,185,129,0.12)',
+        label:  '✅ İçerik Temiz Görünüyor',
+    },
+    unknown: {
+        border: 'rgba(148,163,184,0.25)',
+        glow:   'rgba(148,163,184,0.08)',
+        bg:     'rgba(148,163,184,0.04)',
+        text:   '#94a3b8',
+        badge:  'rgba(148,163,184,0.1)',
+        label:  'Yapay Zeka Analiz Raporu',
+    },
+};
+
+/** Tek bir akordeon (HTML details + summary) */
+function AccordionSection({ icon, title, subtitle, children }) {
+    return (
+        <details className="gemini-accordion" style={{
+            background: 'rgba(15,22,41,0.7)',
+            border: '1px solid rgba(148,163,184,0.12)',
+            borderRadius: 14,
+            overflow: 'hidden',
+            marginBottom: 12,
+        }}>
+            <summary style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '16px 20px',
+                cursor: 'pointer',
+                listStyle: 'none',
+                userSelect: 'none',
+            }}>
+                {/* İkon kutusu */}
+                <span style={{
+                    width: 38, height: 38,
+                    borderRadius: 10,
+                    background: 'rgba(59,130,246,0.1)',
+                    border: '1px solid rgba(59,130,246,0.2)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 18, flexShrink: 0,
+                }}>{icon}</span>
+
+                {/* Metin */}
+                <span style={{ flex: 1 }}>
+                    <span style={{ display: 'block', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                        {title}
+                    </span>
+                    <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                        {subtitle}
+                    </span>
+                </span>
+
+                {/* Ok ikonu (CSS ile döner) */}
+                <span className="accordion-chevron" style={{
+                    width: 28, height: 28,
+                    borderRadius: '50%',
+                    background: 'rgba(59,130,246,0.08)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'transform 250ms ease',
+                    fontSize: 13,
+                    color: 'var(--accent-primary)',
+                }}>▾</span>
+            </summary>
+
+            <div style={{
+                padding: '4px 20px 20px',
+                borderTop: '1px solid rgba(148,163,184,0.08)',
+                animation: 'fadeIn 200ms ease',
+            }}>
+                {children}
+            </div>
+        </details>
+    );
+}
+
+/** Gemini metninin bir bölümünü satır satır işleyip render eder */
+function SectionRenderer({ text, accentColor }) {
+    if (!text) return (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '8px 0' }}>
+            Bu bölüm için içerik mevcut değil.
+        </p>
+    );
+
+    const lines = text.split('\n');
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+            {lines.map((line, i) => {
+                const trimmed = line.trim();
+                if (!trimmed) return <div key={i} style={{ height: 6 }} />;
+
+                // Sayılı madde: "1. " veya "2. "
+                const numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
+                if (numMatch) {
+                    const body = numMatch[2].replace(/\*\*/g, '');
+                    return (
+                        <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '3px 0' }}>
+                            <span style={{
+                                minWidth: 24, height: 24,
+                                borderRadius: '50%',
+                                background: `${accentColor}20`,
+                                border: `1px solid ${accentColor}40`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '0.7rem', fontWeight: 800, color: accentColor,
+                                flexShrink: 0, marginTop: 1,
+                            }}>{numMatch[1]}</span>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.65 }}>{body}</span>
+                        </div>
+                    );
+                }
+
+                // Madde imi: "- " veya "• "
+                if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+                    const body = trimmed.substring(2).replace(/\*\*/g, '');
+                    return (
+                        <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '2px 0' }}>
+                            <span style={{
+                                width: 6, height: 6, borderRadius: '50%',
+                                background: accentColor,
+                                boxShadow: `0 0 6px ${accentColor}80`,
+                                flexShrink: 0, marginTop: 8,
+                            }} />
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.65 }}>{body}</span>
+                        </div>
+                    );
+                }
+
+                // ## Başlık
+                if (trimmed.startsWith('## ')) {
+                    return (
+                        <p key={i} style={{
+                            fontWeight: 700, fontSize: '0.9rem',
+                            color: accentColor, marginTop: 12, marginBottom: 2,
+                        }}>{trimmed.substring(3).replace(/\*\*/g, '')}</p>
+                    );
+                }
+
+                // Normal metin
+                return (
+                    <p key={i} style={{
+                        color: 'var(--text-secondary)', fontSize: '0.88rem',
+                        lineHeight: 1.65,
+                    }}>{trimmed.replace(/\*\*/g, '')}</p>
+                );
+            })}
+        </div>
+    );
+}
+
+/** Ana Gemini infografik rapor bileşeni */
+function GeminiReport({ report, uploadData, onReset, reportRef }) {
+    const aiText  = report.aiReport || '';
+    const parsed  = parseGeminiReport(aiText);
+
+    // ── Backend'den gelen kesin risk değerleri varsa override et ──────────────
+    // Bu sayede web ve mobil her zaman aynı sonucu gösterir.
+    if (report.backendRiskLevel) {
+        const lvl = report.backendRiskLevel.toLowerCase();
+        if (lvl === 'kritik')                       { parsed.riskLevel = 'Kritik';    parsed.riskVariant = 'critical'; }
+        else if (lvl === 'yüksek')                  { parsed.riskLevel = 'Yüksek';    parsed.riskVariant = 'high'; }
+        else if (lvl === 'orta')                    { parsed.riskLevel = 'Orta';      parsed.riskVariant = 'medium'; }
+        else if (lvl === 'düşük')                   { parsed.riskLevel = 'Düşük';     parsed.riskVariant = 'low'; }
+        else if (lvl === 'temiz' || lvl === 'güvenli') { parsed.riskLevel = 'Temiz';  parsed.riskVariant = 'low'; }
+    }
+    // Eğer backend verdict varsa ve riskVariant hâlâ 'unknown'sa, verdict'ten türet
+    if (parsed.riskVariant === 'unknown' && report.backendVerdict) {
+        if (report.backendVerdict === 'malicious')  { parsed.riskVariant = 'critical'; parsed.riskLevel = 'Yüksek'; }
+        else if (report.backendVerdict === 'suspicious') { parsed.riskVariant = 'medium'; parsed.riskLevel = 'Orta'; }
+        else if (report.backendVerdict === 'clean') { parsed.riskVariant = 'low';  parsed.riskLevel = 'Temiz'; }
+    }
+
+    const st = RISK_STYLES[parsed.riskVariant] || RISK_STYLES.unknown;
+
+    const handleDownloadPDF = () => window.print();
+
+    // Fallback: bölüm metni yoksa ham metni kullan
+    const analysisText = parsed.detailedAnalysis || aiText;
+    const adviceText   = parsed.advice || aiText;
+
+    return (
+        <div className="verdict-report-wrapper">
+            <div
+                id="pdf-report-container"
+                ref={reportRef}
+                className="pdf-target-container"
+                style={{ padding: '20px 24px', borderRadius: 16 }}
+            >
+
+                {/* ════════════════════════════════════════════════════
+                    BÖLÜM 1 — Risk Skoru Gauge (büyük, renkli, dairesel)
+                ════════════════════════════════════════════════════ */}
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 16,
+                    padding: '28px 24px',
+                    background: st.bg,
+                    border: `1px solid ${st.border}`,
+                    borderRadius: 20,
+                    boxShadow: `0 0 48px ${st.glow}`,
+                    marginBottom: 20,
+                }}>
+
+                    {/* Dairesel risk göstergesi */}
+                    <div style={{
+                        position: 'relative',
+                        width: 160, height: 160,
+                        borderRadius: '50%',
+                        background: `conic-gradient(${st.text} 0%, ${st.text} ${
+                            parsed.riskVariant === 'critical' ? '90%' :
+                            parsed.riskVariant === 'high'     ? '72%' :
+                            parsed.riskVariant === 'medium'   ? '50%' :
+                            parsed.riskVariant === 'low'      ? '20%' : '35%'
+                        }, rgba(30,41,59,0.6) 0%)`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: `0 0 36px ${st.glow}, inset 0 0 24px rgba(5,8,16,0.8)`,
+                    }}>
+                        {/* İç daire (beyaz yüzey) */}
+                        <div style={{
+                            position: 'absolute',
+                            width: 124, height: 124,
+                            borderRadius: '50%',
+                            background: 'var(--bg-elevated)',
+                            display: 'flex', flexDirection: 'column',
+                            alignItems: 'center', justifyContent: 'center',
+                            gap: 2,
+                        }}>
+                            {/* İkon */}
+                            <span style={{ fontSize: 26 }}>
+                                {parsed.riskVariant === 'low' ? '✅' : parsed.riskVariant === 'unknown' ? '🤖' : '⚠️'}
+                            </span>
+                            {/* Risk seviyesi metni */}
+                            <span style={{
+                                fontWeight: 900,
+                                fontSize: '1.35rem',
+                                color: st.text,
+                                lineHeight: 1,
+                                textShadow: `0 0 16px ${st.text}`,
+                                letterSpacing: '-0.5px',
+                            }}>{parsed.riskLevel}</span>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.04em' }}>RİSK SEVİYESİ</span>
+                        </div>
+                    </div>
+
+                    {/* Durum etiketi rozeti */}
+                    <div style={{
+                        padding: '8px 24px',
+                        borderRadius: 30,
+                        background: st.badge,
+                        border: `1px solid ${st.border}`,
+                        color: st.text,
+                        fontWeight: 700,
+                        fontSize: '0.95rem',
+                        letterSpacing: '0.03em',
+                    }}>{st.label}</div>
+
+                    {/* Hedef bilgisi */}
+                    {(uploadData?.fileName || uploadData?.url) && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '8px 16px',
+                            background: 'rgba(15,22,41,0.6)',
+                            borderRadius: 10,
+                            border: '1px solid rgba(148,163,184,0.1)',
+                            maxWidth: '100%',
+                        }}>
+                            <span style={{ fontSize: 13, opacity: 0.6 }}>🎯</span>
+                            <span style={{
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontSize: '0.75rem',
+                                color: 'var(--text-secondary)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: 320,
+                            }} title={uploadData?.url || uploadData?.fileName}>
+                                {uploadData?.url || uploadData?.fileName}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {/* ════════════════════════════════════════════════════
+                    BÖLÜM 2 — Taktik Rozetleri (Wrap + Badge)
+                ════════════════════════════════════════════════════ */}
+                {parsed.tactics.length > 0 && (
+                    <div style={{
+                        padding: '16px 20px',
+                        background: 'rgba(15,22,41,0.7)',
+                        border: '1px solid rgba(148,163,184,0.12)',
+                        borderRadius: 14,
+                        marginBottom: 12,
+                    }}>
+                        {/* Başlık */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                            <span style={{
+                                width: 30, height: 30, borderRadius: 8,
+                                background: `${st.text}18`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 15,
+                            }}>🎯</span>
+                            <span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-secondary)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                                Tespit Edilen Taktikler
+                            </span>
+                            <span style={{
+                                marginLeft: 'auto',
+                                padding: '2px 10px',
+                                borderRadius: 12,
+                                background: `${st.text}18`,
+                                color: st.text,
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                            }}>{parsed.tactics.length}</span>
+                        </div>
+
+                        {/* Rozet'ler */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {parsed.tactics.map((tactic, idx) => (
+                                <span key={idx} style={{
+                                    padding: '5px 12px',
+                                    borderRadius: 20,
+                                    background: `${st.text}12`,
+                                    border: `1px solid ${st.text}35`,
+                                    color: st.text,
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600,
+                                    boxShadow: `0 2px 8px ${st.text}18`,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                }}>
+                                    {tactic}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* ════════════════════════════════════════════════════
+                    BÖLÜM 3 — Akordeon: Detaylı Analiz
+                ════════════════════════════════════════════════════ */}
+                <AccordionSection
+                    icon="🔍"
+                    title="Detaylı Siber Analiz Raporu"
+                    subtitle="Tehdit mekanizması ve teknik bulgular — detay için tıklayın"
+                >
+                    <SectionRenderer text={analysisText} accentColor="#06b6d4" />
+                </AccordionSection>
+
+                {/* ════════════════════════════════════════════════════
+                    BÖLÜM 4 — Akordeon: Tavsiye & Aksiyon Planı
+                ════════════════════════════════════════════════════ */}
+                <AccordionSection
+                    icon="🛡️"
+                    title="Çözüm ve Aksiyon Planı"
+                    subtitle="Kullanıcıya özel koruma tavsiyeleri — detay için tıklayın"
+                >
+                    <SectionRenderer text={adviceText} accentColor="#3b82f6" />
+                </AccordionSection>
+
+                {/* ════════════════════════════════════════════════════
+                    BÖLÜM 5 — Dosya Metadata
+                ════════════════════════════════════════════════════ */}
+                {uploadData?.fileName && (
+                    <div className="report-meta" style={{ marginTop: 8 }}>
+                        <div className="report-meta__row">
+                            <span className="report-meta__label">Görsel</span>
+                            <span className="report-meta__value" title={uploadData.fileName}>
+                                {uploadData.fileName}
+                            </span>
+                        </div>
+                        {uploadData?.fileSizeBytes != null && (
+                            <div className="report-meta__row">
+                                <span className="report-meta__label">Boyut</span>
+                                <span className="report-meta__value">{formatBytes(uploadData.fileSizeBytes)}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* ── Aksiyon Butonları ── */}
+            <div className="action-buttons print:hidden" style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+                <button
+                    className="btn-download-pdf print:hidden"
+                    onClick={handleDownloadPDF}
+                    aria-label="Raporu İndir (PDF)"
+                >
+                    <DownloadIcon />
+                    Raporu İndir (PDF)
+                </button>
+                <button
+                    id="btn-new-scan"
+                    className="btn-new-scan"
+                    onClick={onReset}
+                    aria-label="Yeni tarama başlat"
+                >
+                    <RefreshIcon />
+                    Yeni Tarama
+                </button>
             </div>
         </div>
     );

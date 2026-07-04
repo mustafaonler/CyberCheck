@@ -579,24 +579,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         ),
         TextButton(
-          onPressed: () {
-            // TODO: context.go(AppConstants.routeRegister)
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Kayıt ekranı yakında eklenecek.',
-                  style: GoogleFonts.inter(fontSize: 13),
-                ),
-                backgroundColor: AppColors.bgElevated,
-                behavior:        SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          },
+          onPressed: () => context.go('/register'),
           style: TextButton.styleFrom(
             foregroundColor: AppColors.accentBlue,
             padding:         const EdgeInsets.symmetric(horizontal: 6),

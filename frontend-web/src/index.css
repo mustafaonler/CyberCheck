@@ -63,30 +63,30 @@ body {
   overflow-x: hidden;
 }
 
-/* Animated background grid */
+/* Animated background grid — video üzerinde çok hafif, renkleri örtmesin */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(59, 130, 246, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(59, 130, 246, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(59, 130, 246, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.02) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
 }
 
-/* Radial gradient overlay */
+/* Radial gradient overlay — çok hafif, video renklerini örtmesin */
 body::after {
   content: '';
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59, 130, 246, 0.12), transparent 60%);
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59, 130, 246, 0.05), transparent 60%);
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
 }
 
-#root { position: relative; z-index: 1; }
+#root { position: relative; z-index: 10; }
 
 /* ── Typography helpers ─────────────────────────────────────── */
 .mono { font-family: 'JetBrains Mono', monospace; }
@@ -310,4 +310,74 @@ body::after {
   .ai-report-container, .ai-report-container * {
     color: #f1f5f9 !important;
   }
+
+  /* Video arka planı ve overlay'i yazdırmada gizle */
+  .cyber-video-bg,
+  .cyber-video-overlay {
+    display: none !important;
+  }
+}
+
+/* ================================================================
+   CyberCheck — Hareketli Video Arka Plan Sistemi
+   
+   Katman mimarisi (alt→üst):
+     -10 : .cyber-video-bg    → Ham video
+      -5 : .cyber-video-overlay  → Karartma + blur filtresi
+       1 : body::before/after    → Grid + gradient üstyapısı
+      10 : #root                 → Tüm React UI içeriği
+   ================================================================ */
+
+/* ── Katman 1: Ham Video ──────────────────────────────────────── */
+.cyber-video-bg {
+  position: fixed;
+  inset: 0;            /* top:0 right:0 bottom:0 left:0 */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;   /* En-boy oranını koruyarak tüm ekranı kapla */
+  object-position: center center;
+  z-index: -10;        /* En alt katman */
+  pointer-events: none; /* Tıklama olaylarını engelleme */
+
+  /* Gizli olduğunda alan kaplamaya devam etmemesi için */
+  display: block;
+}
+
+/* ── Katman 2: Çok Hafif Kenar Karartma Overlay ────────────── */
+/*
+  VIDEO RENKLERI TAM GÖRÜNSÜN:
+  - Arka plan: sadece %20 opak (video %80 görünür)
+  - blur kaldırıldı (renkleri mükeşmel kalması için)
+  - Gradient: sadece kenarlarda vignette etkisi
+*/
+.cyber-video-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: -5;
+  pointer-events: none;
+
+  /* Sadece kenarlardan hafif vignette — merkez tamamen açık */
+  background: radial-gradient(
+    ellipse 85% 85% at 50% 50%,
+    transparent 40%,
+    rgba(2, 6, 15, 0.35) 75%,
+    rgba(2, 6, 15, 0.55) 100%
+  );
+
+  /* backdrop-filter kaldırıldı — video renkleri tam görünsün */
+}
+
+/* ── Akordeon Chevron Animasyonu ─────────────────────────────── */
+/* details[open] olduğunda ok ikonu 180° döner */
+details.gemini-accordion[open] .accordion-chevron {
+  transform: rotate(180deg);
+}
+
+/* Tarayıcı varsayılan üçgenini gizle */
+details.gemini-accordion summary::-webkit-details-marker { display: none; }
+details.gemini-accordion summary::marker              { display: none; }
+
+/* Hover efekti */
+details.gemini-accordion summary:hover {
+  background: rgba(59, 130, 246, 0.04);
 }

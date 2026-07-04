@@ -10,6 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # ── UI & Tipografi ──────────────────────────────────────────────
   cupertino_icons: ^1.0.8
@@ -25,6 +27,10 @@ dependencies:
   # ── Dosya & Medya İşlemleri ─────────────────────────────────────
   file_picker: ^8.0.7           # PDF, belge, dosya seçimi
   image_picker: ^1.1.2          # Ekran görüntüsü / galeri erişimi
+
+  # ── PDF Raporlama ────────────────────────────────────────────────
+  pdf: ^3.11.1                  # PDF belgesi oluşturma motoru
+  printing: ^5.13.2             # PDF önizleme, paylaşma ve yazdırma
 
   # ── Ortam Değişkenleri ──────────────────────────────────────────
   flutter_dotenv: ^5.1.0        # .env dosyasından API anahtarlarını okuma

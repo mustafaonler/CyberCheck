@@ -76,6 +76,85 @@ const mapVTStatus = (vtStatus) => {
     return map[vtStatus] ?? 'in-progress';
 };
 
+/**
+ * Gemini'nin ham rapor metnini parse ederek risk seviyesi, skor ve verdict döndürür.
+ *
+ * Öncelik sırası:
+ *   1) Gizli JSON meta: <!--RISK_JSON:{"risk_level":"Yüksek","risk_score":78}--> (yeni geminiService)
+ *   2) "Risk Seviyesi: X" regex etiket
+ *   3) Phishing sinyali + genel anahtar kelime taraması
+ */
+const _parseRiskFromReport = (report) => {
+    if (!report || typeof report !== 'string') {
+        return { level: 'Bilinmiyor', score: 40, verdict: 'suspicious' };
+    }
+
+    // ── 1) Gizli JSON meta (yeni geminiService tarafından eklenir) ────────────
+    const jsonMetaRe = /<!--RISK_JSON:(\{[^}]+\})-->/;
+    const metaMatch  = report.match(jsonMetaRe);
+    if (metaMatch) {
+        try {
+            const meta = JSON.parse(metaMatch[1]);
+            const lvl  = meta.risk_level;
+            const scr  = meta.risk_score;
+            if (lvl && scr) {
+                const verdictMap = { 'Kritik': 'malicious', 'Yüksek': 'malicious', 'Orta': 'suspicious', 'Düşük': 'clean', 'Temiz': 'clean' };
+                console.log(`[ScanController] ✅ Risk from JSON meta: ${lvl} / ${scr}`);
+                return { level: lvl, score: scr, verdict: verdictMap[lvl] || 'suspicious' };
+            }
+        } catch (_) { /* fall through */ }
+    }
+
+    const lower = report.toLowerCase();
+
+    // ── 2) "Risk Seviyesi: X" regex ──────────────────────────────────────────
+    const riskLineRe = /risk\s+seviyesi\s*[:\-]?\s*\*{0,2}(kritik|yüksek|orta|düşük|temiz|güvenli)\*{0,2}/i;
+    const match = lower.match(riskLineRe);
+    if (match) {
+        const lvl = match[1].toLowerCase().trim();
+        if (lvl === 'kritik') return { level: 'Kritik', score: 92, verdict: 'malicious' };
+        if (lvl === 'yüksek') return { level: 'Yüksek', score: 78, verdict: 'malicious' };
+        if (lvl === 'orta')   return { level: 'Orta',   score: 52, verdict: 'suspicious' };
+        if (lvl === 'düşük') {
+            const hasPhishing = _hasPhishingSignals(lower);
+            if (hasPhishing) return { level: 'Yüksek', score: 75, verdict: 'malicious' };
+            return { level: 'Düşük', score: 22, verdict: 'clean' };
+        }
+        if (lvl === 'temiz' || lvl === 'güvenli') return { level: 'Temiz', score: 5, verdict: 'clean' };
+    }
+
+    // ── 3) Genel anahtar kelime taraması ─────────────────────────────────────
+    const hasPhishing = _hasPhishingSignals(lower);
+    if (lower.includes('kritik'))                              return { level: 'Kritik', score: 92, verdict: 'malicious' };
+    if (lower.includes('yüksek'))                              return { level: 'Yüksek', score: 78, verdict: 'malicious' };
+    if (lower.includes('orta') || lower.includes('şüpheli')) {
+        return { level: 'Orta', score: hasPhishing ? 70 : 52, verdict: hasPhishing ? 'malicious' : 'suspicious' };
+    }
+    if (hasPhishing && lower.includes('düşük'))                return { level: 'Yüksek', score: 75, verdict: 'malicious' };
+    if (lower.includes('düşük'))                               return { level: 'Düşük',  score: 22, verdict: 'clean' };
+    if (lower.includes('temiz') || lower.includes('güvenli')) return { level: 'Temiz',  score: 5,  verdict: 'clean' };
+
+    if (hasPhishing) return { level: 'Yüksek', score: 72, verdict: 'malicious' };
+    return { level: 'Orta', score: 40, verdict: 'suspicious' };
+};
+
+
+/**
+ * Rapor metninde phishing/tehdit sinyalleri var mı kontrol eder.
+ */
+const _hasPhishingSignals = (lowerReport) => {
+    const signals = [
+        'phishing', 'kimlik avı', 'oltalama', 'sahte', 'aciliyet',
+        'kişisel bilgi', 'şifre', 'parola', 'kart numarası', 'tc kimlik',
+        'manipülasyon', 'zararlı', 'kötü amaçlı', 'şüpheli url',
+        'sahte domain', 'kimlik taklidi', 'sosyal mühendislik',
+        'credential', 'hesabın askıya', 'ödül kazandın', 'hemen tıkla',
+        'banka hesabı', 'doğrulama gerekli', 'urgency', 'suspicious',
+        'malicious', 'fraud', 'scam',
+    ];
+    return signals.some(s => lowerReport.includes(s));
+};
+
 // ─── Controllers ──────────────────────────────────────────────────────────────
 
 /**
@@ -351,10 +430,39 @@ exports.handleTextScan = async (req, res) => {
         console.log(`[ScanController] AI Analysis requested. Text length: ${text.length}, Image provided: ${!!image}`);
 
         const imageBuffer = image ? image.buffer : null;
-        const mimeType    = image ? image.mimetype : null;
+        let mimeType      = image ? image.mimetype : null;
 
-        // ── Step 1: Analyze content with Gemini ───────────────────────────────
-        const aiReport = await analyzeContent(text, imageBuffer, mimeType);
+        // Mobile (Flutter) web platform bazen application/octet-stream gönderir.
+        // Gemini bunu reddeder. Uzantıdan tahmin et veya image/png olarak zorla.
+        if (mimeType === 'application/octet-stream' && image) {
+            if (image.originalname.toLowerCase().endsWith('.jpg') || image.originalname.toLowerCase().endsWith('.jpeg')) {
+                mimeType = 'image/jpeg';
+            } else {
+                mimeType = 'image/png';
+            }
+        }
+
+        // ── Görsel gönderildiğinde zorunlu bağlam metni ekle ─────────────────
+        // Gemini görselin ne olduğunu bilmeden analiz yapamaz.
+        // "Bu bir e-posta/ekran görüntüsüdür" bağlamını zorunlu olarak enjekte et.
+        let contextText = text;
+        if (image && !contextText) {
+            contextText = 'Bu görsel bir e-posta ekran görüntüsüdür. Phishing (oltalama) tespiti için analiz et. İçerikte sahte gönderen, şüpheli URL, kişisel bilgi talebi veya aciliyet hissi yaratma gibi phishing taktikleri var mı?';
+        } else if (image && contextText) {
+            contextText = `GÖRSEL BAĞLAMI: Bu görsel bir e-posta veya mesaj ekran görüntüsüdür. Phishing analizi yap.\n\nKullanıcı notu: ${contextText}`;
+        }
+
+        // ── Step 1: Analyze content with Gemini (ISOLATED — fail-safe) ────────
+        let aiReport;
+        try {
+            aiReport = await analyzeContent(contextText, imageBuffer, mimeType);
+            console.log('[ScanController] Gemini analysis completed successfully.');
+            // Ham raporu debug için logla (ilk 500 karakter)
+            console.log('[ScanController] AI Report preview:', aiReport.substring(0, 500));
+        } catch (geminiError) {
+            console.error(`[ScanController] ⚠️  Gemini API error (non-fatal): ${geminiError.message}`);
+            aiReport = 'Yapay zeka sunucularındaki yoğunluk nedeniyle detaylı analiz şu an üretilemiyor.';
+        }
 
         // ── Step 2: Persist the scan record to database ───────────────────────
         let dbRecord = null;
@@ -367,12 +475,16 @@ exports.handleTextScan = async (req, res) => {
             const scanType = image
                 ? determineScanType(req)   // 'image' or 'document'
                 : 'text';
+            
+            // DB tablosu analysis_id için NOT NULL kısıtlamasına sahip olabilir.
+            // Gemini için sahte bir UUID üretiyoruz.
+            const { v4: uuidv4 } = require('uuid');
 
             dbRecord = await createScanRecord({
                 userId,
                 fileName:   displayName,
                 fileSize:   image?.size ?? 0,
-                analysisId: null,          // no VT analysis ID for Gemini-only scans
+                analysisId: uuidv4(),      // Gemini scans don't have VT analysisId, so provide a dummy one
                 type:       scanType,
             });
             console.log(`[ScanController] DB record created for AI scan (id=${dbRecord?.id}, type=${scanType}).`);
@@ -380,20 +492,29 @@ exports.handleTextScan = async (req, res) => {
             console.error('[ScanController] Dosya Kayıt Hatası:', dbError);
         }
 
-        // ── Step 3: Return the AI Report ──────────────────────────────────────
+        // ── Step 3: Server-side risk parse — Flutter'ın tahmin etmesine gerek yok ─
+        const parsedRisk = _parseRiskFromReport(aiReport);
+        console.log(`[ScanController] Parsed risk: level=${parsedRisk.level}, score=${parsedRisk.score}, verdict=${parsedRisk.verdict}`);
+
+        // ── Step 4: Return the AI Report (always 200 OK) ─────────────────────
         return res.status(200).json({
             success: true,
             mode: 'gemini_analysis',
             data: {
                 scanId:        dbRecord?.id ?? null,
                 report:        aiReport,
+                risk_level:    parsedRisk.level,
+                risk_score:    parsedRisk.score,
+                verdict:       parsedRisk.verdict,
                 fileName:      image?.originalname ?? null,
                 fileSizeBytes: image?.size ?? null,
             },
         });
 
     } catch (error) {
-        console.error('[ScanController] handleTextScan error:', error.message);
+        // This outer catch handles truly unexpected failures (e.g. request
+        // parsing errors), NOT Gemini API failures — those are caught above.
+        console.error('[ScanController] handleTextScan unexpected error:', error.message);
 
         return res.status(500).json({
             success: false,

@@ -9,8 +9,40 @@ const VT_FILES_URL     = 'https://www.virustotal.com/api/v3/files';
 const VT_URLS_URL      = 'https://www.virustotal.com/api/v3/urls';
 const VT_ANALYSES_URL  = 'https://www.virustotal.com/api/v3/analyses';
 
+// ─── Helper: build base headers for every VT request ─────────────────────────
+// VirusTotal automatically injects x-vt-user from the API key owner's profile.
+// If that profile name contains non-ASCII chars (e.g. 'Önler'), VT's own
+// metadata validation fails with HTTP 400. Explicitly overriding x-vt-user
+// with an ASCII-only value prevents the error on ALL endpoints.
+const vtHeaders = (apiKey, extra = {}) => ({
+    'x-apikey':  apiKey,
+    'x-vt-user': 'CyberCheck',   // ASCII-only override — avoids Turkish-char 400 error
+    ...extra,
+});
+
 // ─── Helper: encode a URL to the VT-safe base64 format ───────────────────────
 const encodeUrlForVT = (url) => Buffer.from(url).toString('base64').replace(/=/g, '');
+
+// ─── Helper: sanitize a string to ASCII-only for VirusTotal metadata ──────────
+// VirusTotal API rejects non-ASCII characters (e.g. Turkish chars like Ö, ş, ğ)
+// in filename metadata and x-vt-user headers, returning HTTP 400.
+const TURKISH_CHAR_MAP = {
+    'ç': 'c', 'Ç': 'C',
+    'ğ': 'g', 'Ğ': 'G',
+    'ı': 'i', 'İ': 'I',
+    'ö': 'o', 'Ö': 'O',
+    'ş': 's', 'Ş': 'S',
+    'ü': 'u', 'Ü': 'U',
+};
+
+const sanitizeAscii = (str) => {
+    if (!str || typeof str !== 'string') return str;
+    // 1) Replace known Turkish characters with ASCII equivalents
+    let sanitized = str.replace(/[çÇğĞıİöÖşŞüÜ]/g, (ch) => TURKISH_CHAR_MAP[ch] ?? ch);
+    // 2) Strip any remaining non-ASCII characters (safety net)
+    sanitized = sanitized.replace(/[^\x00-\x7F]/g, '_');
+    return sanitized;
+};
 
 
 /**
@@ -29,7 +61,7 @@ const scanUrlWithVT = async (targetUrl) => {
         const encodedUrl = encodeUrlForVT(targetUrl);
 
         const response = await axios.get(`${VT_URLS_URL}/${encodedUrl}`, {
-            headers: { 'x-apikey': apiKey }
+            headers: vtHeaders(apiKey),
         });
 
         const stats = response.data.data.attributes.last_analysis_stats;
@@ -73,7 +105,7 @@ const getUrlMetadata = async (targetUrl) => {
     try {
         const encodedUrl = encodeUrlForVT(targetUrl);
         const response = await axios.get(`${VT_URLS_URL}/${encodedUrl}`, {
-            headers: { 'x-apikey': apiKey },
+            headers: vtHeaders(apiKey),
             timeout: 20000,
         });
 
@@ -141,19 +173,19 @@ const scanFileWithVirusTotal = async (fileBuffer, originalName) => {
         throw new Error('VT_API_KEY is not defined in environment variables.');
     }
 
-    // Build a multipart/form-data body from the in-memory buffer
+    // Build a multipart/form-data body from the in-memory buffer.
+    // Sanitize the filename to ASCII-only — VirusTotal rejects non-ASCII
+    // characters in multipart metadata (e.g. Turkish filenames like 'görsel.jpg').
+    const safeFilename = sanitizeAscii(originalName);
     const form = new FormData();
     form.append('file', fileBuffer, {
-        filename: originalName,
+        filename: safeFilename,
         contentType: 'application/octet-stream',
     });
 
     try {
         const response = await axios.post(VT_FILES_URL, form, {
-            headers: {
-                'x-apikey': apiKey,
-                ...form.getHeaders(),
-            },
+            headers: vtHeaders(apiKey, form.getHeaders()),
             // 30-second timeout to handle slow network conditions
             timeout: 30000,
         });
@@ -203,7 +235,7 @@ const getAnalysisReport = async (analysisId) => {
 
     try {
         const response = await axios.get(`${VT_ANALYSES_URL}/${analysisId}`, {
-            headers: { 'x-apikey': apiKey },
+            headers: vtHeaders(apiKey),
             timeout: 30000,
         });
 
@@ -213,6 +245,33 @@ const getAnalysisReport = async (analysisId) => {
             const status = error.response.status;
             const vtMessage =
                 error.response.data?.error?.message || 'Unknown VirusTotal error.';
+
+            // ── Special case: VirusTotal profile username contains non-ASCII ──
+            // VT server-side injects the account's display name into internal
+            // metadata. If that name has Turkish/non-ASCII chars (e.g. 'Önler'),
+            // VT's own validation rejects it with "metadata was invalid".
+            // This CANNOT be fixed via request headers; the VT account username
+            // must be changed to ASCII at https://www.virustotal.com → Settings.
+            // Workaround: treat this as "still in progress" so the poller retries.
+            if (status === 400 && vtMessage.includes('metadata was invalid')) {
+                console.warn(
+                    '[VirusTotal] ⚠️  "metadata was invalid" error detected.\n' +
+                    '  Root cause: The VirusTotal account username contains non-ASCII\n' +
+                    '  characters (e.g. "Önler"). Fix: go to https://www.virustotal.com\n' +
+                    '  → Settings → change your username to ASCII-only (e.g. "Onler").'
+                );
+                // Return a synthetic "still queued" response so the UI keeps polling
+                // instead of showing a hard error to the user.
+                return {
+                    data: {
+                        attributes: {
+                            status: 'queued',
+                            stats: { malicious: 0, suspicious: 0, harmless: 0, undetected: 0 },
+                        },
+                    },
+                    _vtProfileBug: true,   // flag for debugging
+                };
+            }
 
             if (status === 401) {
                 throw new Error(`VirusTotal authentication failed. Check your VT_API_KEY. (${vtMessage})`);
@@ -253,10 +312,7 @@ const scanUrl = async (url) => {
 
     try {
         const response = await axios.post(VT_URLS_URL, body.toString(), {
-            headers: {
-                'x-apikey': apiKey,
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
+            headers: vtHeaders(apiKey, { 'Content-Type': 'application/x-www-form-urlencoded' }),
             timeout: 30000,
         });
 

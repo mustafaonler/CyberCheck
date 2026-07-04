@@ -10,7 +10,7 @@
 //                                  /scan      → <AppHeader> + <ScanPage>
 //                                  /report/:id → <ReportPage> (standalone)
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     BrowserRouter,
     Routes,
@@ -19,14 +19,55 @@ import {
     useNavigate,
     useLocation,
 } from 'react-router-dom';
-import { supabase }   from './lib/supabase.js';
-import AuthPage       from './pages/AuthPage.jsx';
-import LandingPage    from './pages/LandingPage.jsx';
-import ScanPage       from './pages/ScanPage.jsx';
-import Dashboard      from './pages/Dashboard.jsx';
-import ReportPage     from './pages/ReportPage.jsx';
-import AppHeader      from './components/AppHeader.jsx';
-import { Toaster }    from 'react-hot-toast';
+import { supabase }    from './lib/supabase.js';
+import AuthPage        from './pages/AuthPage.jsx';
+import LandingPage     from './pages/LandingPage.jsx';
+import ScanPage        from './pages/ScanPage.jsx';
+import Dashboard       from './pages/Dashboard.jsx';
+import ReportPage      from './pages/ReportPage.jsx';
+import AppHeader       from './components/AppHeader.jsx';
+import CyberCanvas     from './components/CyberCanvas.jsx';
+import { Toaster }     from 'react-hot-toast';
+
+// ── Hareketli Arka Plan ───────────────────────────────────────────────────────────
+// Öncelik: /public/cyber-bg.mp4 (gerçek video)
+// Fallback: CyberCanvas (Canvas animasyonu) — video hatalıysa devreye girer
+
+function CyberVideoBackground() {
+    const videoRef   = useRef(null);
+    const [showCanvas, setShowCanvas] = useState(false);
+
+    // Video yüklenemezse Canvas animasyonuna düş
+    const handleError = () => setShowCanvas(true);
+
+    // Video oynayınca Canvas'ı kapat (performans için)
+    const handlePlaying = () => setShowCanvas(false);
+
+    return (
+        <>
+            {/* Katman 1a: Gerçek MP4 video — fixed, tüm ekran */}
+            <video
+                ref={videoRef}
+                className="cyber-video-bg"
+                autoPlay
+                loop
+                muted
+                playsInline
+                onError={handleError}
+                onPlaying={handlePlaying}
+                aria-hidden="true"
+            >
+                <source src="/cyber-bg.mp4" type="video/mp4" />
+            </video>
+
+            {/* Katman 1b: Canvas fallback — sadece video çalışmazsa görünür */}
+            {showCanvas && <CyberCanvas />}
+
+            {/* Katman 2: Karartma + blur overlay — metinler okunabilir kalır */}
+            <div className="cyber-video-overlay" aria-hidden="true" />
+        </>
+    );
+}
 
 // ── Shared Toaster config ─────────────────────────────────────────────────────
 
@@ -144,6 +185,9 @@ export default function App() {
 
     return (
         <BrowserRouter>
+            {/* ── Hareketli arka plan — tüm sayfalarda görünür ── */}
+            <CyberVideoBackground />
+
             <Toaster position="bottom-right" toastOptions={TOASTER_OPTS} />
 
             {!session ? (

@@ -24,7 +24,7 @@ class AppConstants {
       dotenv.env['BACKEND_API_URL'] ?? 'http://localhost:5000';
 
   static String get scanUrlEndpoint    => '$apiBaseUrl/api/scan/url';
-  static String get scanFileEndpoint   => '$apiBaseUrl/api/scan/file';
+  static String get scanFileEndpoint   => '$apiBaseUrl/api/scan/upload';
   static String get scanImageEndpoint  => '$apiBaseUrl/api/scan/image';
   static String get scanTextEndpoint   => '$apiBaseUrl/api/scan/text';
   static String get historyEndpoint    => '$apiBaseUrl/api/scan/history';

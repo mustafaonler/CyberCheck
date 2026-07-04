@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <!-- UTF-8 ENCODING FIX: En başta olmalıdır -->
+  <meta charset="UTF-8">
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="CyberCheck Web Uygulaması">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="cybercheck">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <title>CyberCheck</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Google Fonts veya sistem fontu linkleri kaldırıldı, Flutter CanvasKit kullanılacak -->
+
+  <script>
+    // The value below is injected by flutter build, do not touch.
+    var serviceWorkerVersion = null;
+  </script>
+  <!-- This script adds the flutter initialization JS code -->
+  <script src="flutter.js" defer></script>
+</head>
+<body>
+  <script>
+    window.addEventListener('load', function(ev) {
+      // Flutter'ın kendi font sistemini kullanması için CanvasKit zorlaması yapılıyor
+      // CanvasKit, UTF-8 karakterleri Skia motoru ile doğrudan render eder
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        },
+        onEntrypointLoaded: function(engineInitializer) {
+          engineInitializer.initializeEngine({
+            renderer: 'canvaskit', // Flutter'ın kendi Skia tabanlı render motoru
+            useColorEmoji: true,
+          }).then(function(appRunner) {
+            appRunner.runApp();
+          });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

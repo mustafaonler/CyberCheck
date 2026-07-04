@@ -16,6 +16,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../utils/theme.dart';
 import '../utils/constants.dart';
+import 'result_screen.dart';
 
 // ── Mock veri modeli ──────────────────────────────────────────────────────────
 
@@ -40,31 +41,31 @@ const List<_ScanRecord> _mockRecords = [
     target:    'malicious-payload.pdf',
     riskScore: 91,
     type:      ScanType.file,
-    date:      '13 May, 22:48',
+    date:      '10 Dk Önce',
   ),
   _ScanRecord(
     target:    'phishing-site.ru/login',
     riskScore: 74,
     type:      ScanType.url,
-    date:      '13 May, 21:15',
+    date:      '45 Dk Önce',
   ),
   _ScanRecord(
     target:    'safe-website.com',
     riskScore: 12,
     type:      ScanType.url,
-    date:      '13 May, 18:30',
+    date:      '1 Saat Önce',
   ),
   _ScanRecord(
     target:    'suspicious-image.png',
     riskScore: 55,
     type:      ScanType.image,
-    date:      '12 May, 14:10',
+    date:      '3 Saat Önce',
   ),
   _ScanRecord(
     target:    'invoice_march.docx',
     riskScore: 8,
     type:      ScanType.file,
-    date:      '12 May, 09:22',
+    date:      '5 Saat Önce',
   ),
 ];
 
@@ -158,8 +159,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                     children: [
                       _buildWelcomeHeader(),
                       const SizedBox(height: 24),
+                      _buildThreatRatioCard(),
+                      const SizedBox(height: 16),
                       _buildStatsRow(),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
+                      _buildHistoryCTA(),
+                      const SizedBox(height: 16),
                       _buildScanCTA(),
                       const SizedBox(height: 32),
                       _buildSectionHeader(),
@@ -222,6 +227,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         ],
       ),
       actions: [
+        // Geçmiş Taramalar
+        IconButton(
+          icon: const Icon(
+            Icons.history_rounded,
+            color: AppColors.textSecondary,
+            size:  22,
+          ),
+          onPressed: () => context.go('/history'),
+          tooltip: 'Geçmiş Taramalar',
+        ),
         // Bildirim ikonu (placeholder)
         IconButton(
           icon: const Icon(
@@ -320,6 +335,99 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  // ── Tehdit Oranı Grafiği (Dairesel) ───────────────────────────────────────
+
+  Widget _buildThreatRatioCard() {
+    final double threatRatio = _totalScans == 0 ? 0 : _threatCount / _totalScans;
+    final int ratioPercent = (threatRatio * 100).round();
+
+    Color gaugeColor;
+    if (ratioPercent >= 50) {
+      gaugeColor = AppColors.danger;
+    } else if (ratioPercent >= 20) {
+      gaugeColor = AppColors.warning;
+    } else {
+      gaugeColor = AppColors.success;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0F1E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: gaugeColor.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: gaugeColor.withValues(alpha: 0.05),
+            blurRadius: 24,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Dairesel Grafik
+          SizedBox(
+            width: 72, height: 72,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CircularProgressIndicator(
+                  value: 1.0,
+                  strokeWidth: 6,
+                  color: gaugeColor.withValues(alpha: 0.1),
+                ),
+                CircularProgressIndicator(
+                  value: threatRatio,
+                  strokeWidth: 6,
+                  backgroundColor: Colors.transparent,
+                  color: gaugeColor,
+                  strokeCap: StrokeCap.round,
+                ),
+                Center(
+                  child: Text(
+                    '%$ratioPercent',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: gaugeColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          // Metinler
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Genel Tehdit Oranı',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Taranan $_totalScans dosyadan $_threatCount tanesinde yüksek risk tespit edildi.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── İstatistik kartları ───────────────────────────────────────────────────
 
   Widget _buildStatsRow() {
@@ -337,7 +445,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         const SizedBox(width: 12),
         Expanded(
           child: _StatCard(
-            label:     'Tespit Edilen Tehdit',
+            label:     'Tespit Edilen',
             value:     '$_threatCount',
             icon:      Icons.gpp_bad_rounded,
             iconColor: AppColors.danger,
@@ -427,11 +535,83 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  // ── Geçmiş Taramalar CTA ──────────────────────────────────────────────────
+
+  Widget _buildHistoryCTA() {
+    return GestureDetector(
+      onTap: () => context.go('/history'),
+      child: Container(
+        width:   double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          color:        AppColors.bgElevated,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.accentCyan.withValues(alpha: 0.25),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color:      AppColors.accentCyan.withValues(alpha: 0.06),
+              blurRadius: 16,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42, height: 42,
+              decoration: BoxDecoration(
+                color:        AppColors.accentCyan.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: AppColors.accentCyan.withValues(alpha: 0.2)),
+              ),
+              child: const Icon(
+                Icons.history_rounded,
+                size:  22,
+                color: AppColors.accentCyan,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Geçmiş Taramalar',
+                    style: GoogleFonts.inter(
+                      fontSize:   14,
+                      fontWeight: FontWeight.w600,
+                      color:      AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Raporlarınızı görün ve PDF olarak paylaşın',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color:    AppColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size:  13,
+              color: AppColors.accentCyan,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── "Son Aktiviteler" başlığı ─────────────────────────────────────────────
 
   Widget _buildSectionHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Son Aktiviteler',
@@ -441,12 +621,25 @@ class _DashboardScreenState extends State<DashboardScreen>
             color:      AppColors.textPrimary,
           ),
         ),
-        Text(
-          '${_mockRecords.length} kayıt',
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            color:    AppColors.textMuted,
-          ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Container(
+              width: 6, height: 6,
+              decoration: const BoxDecoration(
+                color: AppColors.success,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Canlı Akış',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color:    AppColors.textMuted,
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -549,19 +742,16 @@ class _ActivityCard extends StatelessWidget {
   }
 
   String get _riskLabel {
-    if (record.riskScore >= 70) return 'YÜKSEK';
-    if (record.riskScore >= 40) return 'ORTA';
-    return 'DÜŞÜK';
+    if (record.riskScore >= 70) return 'Yüksek Risk';
+    if (record.riskScore >= 40) return 'Orta Risk';
+    return 'Temiz';
   }
 
-  // ── Tür ikonu ────────────────────────────────────────────────────────────
-  IconData get _typeIcon {
-    switch (record.type) {
-      case ScanType.url:   return Icons.link_rounded;
-      case ScanType.file:  return Icons.insert_drive_file_outlined;
-      case ScanType.image: return Icons.image_outlined;
-      case ScanType.text:  return Icons.text_snippet_outlined;
-    }
+  // ── Risk ikonu ────────────────────────────────────────────────────────────
+  IconData get _riskIcon {
+    if (record.riskScore >= 70) return Icons.gpp_bad_rounded;
+    if (record.riskScore >= 40) return Icons.warning_amber_rounded;
+    return Icons.gpp_good_rounded;
   }
 
   @override
@@ -582,30 +772,58 @@ class _ActivityCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           splashColor: _riskColor.withValues(alpha: 0.06),
           onTap: () {
-            // TODO: context.go('/report/${record.id}')
+            // Gelişmiş AI Rapor Ekranına Yönlendir (ResultScreen)
+            final verdict = record.riskScore >= 70 ? 'malicious' : record.riskScore >= 40 ? 'suspicious' : 'clean';
+            
+            // Web'deki ile aynı akordeon yapısını test etmek için mock AI raporu
+            final mockAiReport = '''
+Bu hedefte tespit edilen risk profiline göre oluşturulmuş yapay zeka analizidir.
+
+## Tespit Edilen Taktikler
+- ${record.riskScore >= 70 ? 'Kimlik Avı' : 'Şüpheli İçerik'}
+- Sosyal Mühendislik
+- ${record.riskScore >= 40 ? 'Gizli Yönlendirme' : 'Zararsız Dosya'}
+
+## Detaylı Analiz
+Taranan hedef (`${record.target}`) üzerinde yapılan statik ve dinamik analizlerde bazı anormal desenler görülmüştür. Oltalama kampanyalarında sık kullanılan bazı tekniklerin izleri bulunmaktadır. Özellikle alan adının yaşı ve SSL sertifikasının durumu risk seviyesini artırmaktadır.
+
+## Kullanıcıya Tavsiye
+Lütfen bu hedefe herhangi bir kişisel bilgi girmeyin. Kaynağın güvenilirliğini alternatif kanallardan (örn: resmi web sitesine kendiniz giderek) teyit edin.
+            ''';
+
+            final data = ScanResultData(
+              riskScore: record.riskScore,
+              verdict: verdict,
+              aiReport: mockAiReport,
+              threats: [], // Otomatik parse edilecek
+              scanType: record.type.name,
+              inputLabel: record.target,
+            );
+
+            context.push('/result', extra: data);
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
             child: Row(
               children: [
-                // Tür ikonu
+                // Sol Kısım: Risk İkonu
                 Container(
                   width: 40, height: 40,
                   decoration: BoxDecoration(
-                    color:        AppColors.bgElevated,
+                    color:        _riskColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.borderSubtle),
+                    border: Border.all(color: _riskColor.withValues(alpha: 0.3)),
                   ),
                   child: Icon(
-                    _typeIcon,
-                    size:  18,
-                    color: AppColors.textSecondary,
+                    _riskIcon,
+                    size:  20,
+                    color: _riskColor,
                   ),
                 ),
 
                 const SizedBox(width: 12),
 
-                // Hedef + Tarih
+                // Orta Kısım: Hedef + Risk Seviyesi
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -613,19 +831,20 @@ class _ActivityCard extends StatelessWidget {
                       Text(
                         record.target,
                         style: GoogleFonts.jetBrainsMono(
-                          fontSize:  12,
-                          fontWeight: FontWeight.w500,
+                          fontSize:  13,
+                          fontWeight: FontWeight.w600,
                           color:      AppColors.textPrimary,
                         ),
                         maxLines:  1,
                         overflow:  TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Text(
-                        record.date,
+                        _riskLabel,
                         style: GoogleFonts.inter(
                           fontSize: 11,
-                          color:    AppColors.textMuted,
+                          fontWeight: FontWeight.w500,
+                          color:    _riskColor,
                         ),
                       ),
                     ],
@@ -634,43 +853,14 @@ class _ActivityCard extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                // Risk rozeti
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    // Yüzde gösterge
-                    Text(
-                      '%${record.riskScore}',
-                      style: GoogleFonts.inter(
-                        fontSize:   15,
-                        fontWeight: FontWeight.w800,
-                        color:      _riskColor,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    // Etiket rozeti
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color:        _riskColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _riskColor.withValues(alpha: 0.30),
-                        ),
-                      ),
-                      child: Text(
-                        _riskLabel,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize:   9,
-                          fontWeight: FontWeight.w700,
-                          color:      _riskColor,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ),
-                  ],
+                // Sağ Kısım: Zaman Damgası
+                Text(
+                  record.date,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color:    AppColors.textMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),

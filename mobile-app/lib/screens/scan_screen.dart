@@ -8,11 +8,17 @@
 //   • Sonuç : mock "%85 - Kritik Tehdit" risk kartı
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
 import '../utils/theme.dart';
+import '../utils/constants.dart';
+import '../services/supabase_service.dart';
+import 'result_screen.dart';
 
 // ─── Sabitler ────────────────────────────────────────────────────────────────
 
@@ -50,12 +56,20 @@ class _ScanScreenState extends State<ScanScreen>
   // Sekme 2 — Metin
   final TextEditingController _textCtrl = TextEditingController();
 
-  // Sekme 3 — Dosya
+  // Sekme 3 — Dosya (sadece non-image: EXE, APK, PDF, ZIP vb.)
   String? _pickedFileName;
 
   // Durum
   bool _isLoading  = false;
   bool _showResult = false;
+  String? _errorMessage;
+
+  // Dosya (Sekme 3) — yalnızca VirusTotal için
+  PlatformFile? _pickedPlatformFile;
+
+  // SS (Sekme 2) — Gemini için ekran görüntüsü
+  PlatformFile? _ssFile;
+  String? _ssFileName;
 
   // Yükleme animasyonu
   int    _msgIndex = 0;
@@ -79,9 +93,25 @@ class _ScanScreenState extends State<ScanScreen>
   // ── İş Mantığı ─────────────────────────────────────────────────────────────
 
   Future<void> _startAnalysis() async {
+    // Girdi doğrulama
+    final tab = _tabCtrl.index;
+    if (tab == 0 && _urlCtrl.text.trim().isEmpty) {
+      _showSnack('Lütfen bir URL girin.');
+      return;
+    }
+    if (tab == 1 && _textCtrl.text.trim().isEmpty && _ssFile == null) {
+      _showSnack('Lütfen metin girin veya ekran görüntüsü yükleyin.');
+      return;
+    }
+    if (tab == 2 && _pickedPlatformFile == null) {
+      _showSnack('Lütfen bir dosya seçin.');
+      return;
+    }
+
     setState(() {
       _isLoading   = true;
       _showResult  = false;
+      _errorMessage = null;
       _msgIndex    = 0;
     });
 
@@ -94,27 +124,283 @@ class _ScanScreenState extends State<ScanScreen>
       }
     });
 
-    // Mock bekleme süresi
-    await Future.delayed(const Duration(seconds: 3));
-    _msgTimer?.cancel();
+    try {
+      // Auth token
+      final token = SupabaseService.instance.currentSession?.accessToken;
+      final headers = <String, String>{
+        if (token != null) 'Authorization': 'Bearer $token',
+      };
 
+      http.Response? response;
+      String scanType  = 'url';
+      String? inputLabel;
+
+      if (tab == 0) {
+        // ── URL Tarama ──────────────────────────────────────
+        scanType   = 'url';
+        inputLabel = _urlCtrl.text.trim();
+        headers['Content-Type'] = 'application/json';
+        final user = SupabaseService.instance.currentSession?.user;
+        response = await http.post(
+          Uri.parse(AppConstants.scanUrlEndpoint),
+          headers: headers,
+          body: jsonEncode({'url': inputLabel, 'user_id': user?.id}),
+        ).timeout(const Duration(seconds: 60));
+
+      } else if (tab == 1) {
+        // ── SS / Metin Analizi → Gemini ──────────────────────────
+        scanType = 'text';
+        final txt = _textCtrl.text.trim();
+        inputLabel = _ssFileName ?? (txt.length > 60 ? '${txt.substring(0, 60)}…' : txt);
+
+        final formData = http.MultipartRequest(
+          'POST',
+          Uri.parse(AppConstants.scanTextEndpoint),
+        );
+        formData.headers.addAll(headers);
+        if (txt.isNotEmpty) formData.fields['text'] = txt;
+
+        // Ekran görüntüsü varsa ekle → Gemini görsel + metin birlikte analiz eder
+        if (_ssFile != null) {
+          scanType = 'image';
+          if (_ssFile!.bytes != null) {
+            formData.files.add(http.MultipartFile.fromBytes(
+              'image',
+              _ssFile!.bytes!,
+              filename: _ssFile!.name,
+            ));
+          } else if (_ssFile!.path != null) {
+            formData.files.add(await http.MultipartFile.fromPath('image', _ssFile!.path!));
+          }
+        }
+
+        final streamed = await formData.send().timeout(const Duration(seconds: 90));
+        response = await http.Response.fromStream(streamed);
+
+      } else {
+        // ── Dosya Tarama (EXE/APK/PDF/ZIP vb.) → VirusTotal ──────
+        // NOT: Bu sekme SADECE non-image dosyaları kabul eder.
+        final pf   = _pickedPlatformFile!;
+        scanType   = 'file';
+        inputLabel = _pickedFileName;
+        final user = SupabaseService.instance.currentSession?.user;
+
+        final req = http.MultipartRequest(
+          'POST',
+          Uri.parse(AppConstants.scanFileEndpoint),
+        );
+        req.headers.addAll(headers);
+        if (user != null) req.fields['user_id'] = user.id;
+
+        if (pf.bytes != null) {
+          req.files.add(http.MultipartFile.fromBytes(
+            'file',
+            pf.bytes!,
+            filename: pf.name,
+          ));
+        } else if (pf.path != null) {
+          req.files.add(await http.MultipartFile.fromPath('file', pf.path!));
+        }
+
+        final streamed = await req.send().timeout(const Duration(seconds: 60));
+        response = await http.Response.fromStream(streamed);
+      }
+
+
+      _msgTimer?.cancel();
+
+      if (response == null) {
+        _onError('Sunucu bağlantı hatası: Analiz şu anda gerçekleştirilemiyor.');
+        return;
+      }
+
+      // ── Backend HTTP hata kontrolü ─────────────────────────────────────────
+      // Eğer backend 200 dışı bir kod dönerse (500, 503 vb.) kullanıcıyı
+      // result_screen'e KESİNLİKLE yönlendirme. Sahte sonuç gösterme!
+      if (response.statusCode != 200) {
+        String serverMsg = 'Sunucu bağlantı hatası: Analiz şu anda gerçekleştirilemiyor.';
+        try {
+          final errJson = jsonDecode(response.body) as Map<String, dynamic>;
+          if (errJson['message'] is String && (errJson['message'] as String).isNotEmpty) {
+            serverMsg = 'Sunucu hatası (${response.statusCode}): ${errJson['message']}';
+          }
+        } catch (_) {}
+        _onError(serverMsg);
+        return;
+      }
+
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (json['success'] == false) {
+        _onError(json['message'] as String? ?? 'Sunucu bağlantı hatası: Analiz şu anda gerçekleştirilemiyor.');
+        return;
+      }
+
+      // Veriyi çıkar
+      final rawData = json['data'] as Map<String, dynamic>? ?? {};
+
+      // Gemini yanıtında rapor `report` alanında gelir
+      if (rawData['report'] != null && rawData['ai_report'] == null) {
+        rawData['ai_report'] = rawData['report'];
+      }
+
+      // ── VirusTotal Polling (Bekleme) ──────────────────────────────────
+      Map<String, dynamic> finalReportData = {};
+      final analysisId = rawData['analysisId'];
+      
+      if (analysisId != null && analysisId.toString().isNotEmpty) {
+        bool isDone = false;
+        int attempts = 0;
+        
+        while (!isDone && attempts < 40) {
+          await Future.delayed(const Duration(seconds: 3));
+          attempts++;
+          
+          final pollRes = await http.get(
+            Uri.parse('${AppConstants.apiBaseUrl}/api/scan/report/$analysisId'),
+            headers: headers,
+          ).timeout(const Duration(seconds: 15));
+          
+          // Polling sırasında sunucu 5xx dönerse hemen hata ver
+          if (pollRes.statusCode >= 500) {
+            throw Exception('Sunucu bağlantı hatası: Analiz şu anda gerçekleştirilemiyor.');
+          }
+
+          if (pollRes.statusCode == 200) {
+            final pollJson = jsonDecode(pollRes.body) as Map<String, dynamic>;
+            if (pollJson['success'] == true && pollJson['report'] != null) {
+              final reportObj = pollJson['report'] as Map<String, dynamic>;
+              if (reportObj['status'] == 'completed') {
+                isDone = true;
+                finalReportData = reportObj; // verdict, stats vb.
+              }
+            }
+          }
+        }
+        
+        if (!isDone) {
+          throw Exception('VirusTotal analizi çok uzun sürdü. Raporunuz daha sonra geçmişe düşecektir.');
+        }
+      } else {
+        // AI / Text Scan (senkron)
+        finalReportData = rawData;
+      }
+
+      // Tüm verileri birleştir (POST response + Polling GET response)
+      final Map<String, dynamic> mergedData = {
+        ...rawData,
+        ...finalReportData,
+      };
+
+      print('BACKEND YANITI (MERGED): $mergedData');
+
+      final resultData = ScanResultData.fromJson(
+        mergedData,
+        scanType:   scanType,
+        inputLabel: inputLabel,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading  = false;
+        _showResult = false;
+      });
+
+      // /result rotasına yönlendir
+      context.push('/result', extra: resultData);
+
+    } on SocketException {
+      _onError('Sunucuya bağlanılamadı. Backend çalışıyor mu?');
+    } on TimeoutException {
+      _onError('İstek zaman aşımına uğradı. Lütfen tekrar deneyin.');
+    } catch (e) {
+      _onError(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  void _onError(String message) {
+    _msgTimer?.cancel();
+    if (!mounted) return;
     setState(() {
-      _isLoading  = false;
-      _showResult = true;
+      _isLoading    = false;
+      _errorMessage = message;
     });
+    // Hata durumunda kırmızı SnackBar göster — sahte sonuç ekranı asla açılmaz
+    _showErrorSnack(message);
+  }
+
+  /// Genel bilgi SnackBar'ı (nötr renk — girdi doğrulama vb. için)
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: GoogleFonts.inter(fontSize: 13)),
+        backgroundColor: AppColors.bgElevated,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  /// Sunucu / ağ hatası SnackBar'ı (kırmızı) — backend 5xx durumlarında kullanılır.
+  /// result_screen'e yönlendirilmeden önce bu gösterilir; sahte 0-risk ekranı asla açılmaz.
+  void _showErrorSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                msg,
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFFD32F2F), // kırmızı — açık bir hata sinyali
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 6),
+      ),
+    );
+  }
+
+  bool _isImageFile(PlatformFile file) {
+    final name = file.name.toLowerCase();
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+    return imageExtensions.any(name.endsWith);
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      withData: true, // Web için veri bytes olarak okunmalı
+      withReadStream: false,
+    );
     if (result != null && result.files.isNotEmpty) {
-      setState(() => _pickedFileName = result.files.first.name);
+      final pf = result.files.first;
+      setState(() {
+        _pickedFileName = pf.name;
+        _pickedPlatformFile = pf;
+      });
     }
   }
 
   void _resetScan() => setState(() {
-    _showResult     = false;
-    _isLoading      = false;
-    _pickedFileName = null;
+    _showResult         = false;
+    _isLoading          = false;
+    _errorMessage       = null;
+    _pickedFileName     = null;
+    _pickedPlatformFile = null;
+    _ssFile             = null;
+    _ssFileName         = null;
     _urlCtrl.clear();
     _textCtrl.clear();
   });
@@ -195,8 +481,8 @@ class _ScanScreenState extends State<ScanScreen>
         unselectedLabelStyle: GoogleFonts.inter(fontSize: 13),
         tabs: const [
           Tab(text: 'URL'),
-          Tab(text: 'Metin'),
-          Tab(text: 'Dosya / Görsel'),
+          Tab(text: '📧 SS / Metin'),
+          Tab(text: '📄 Dosya Tara'),
         ],
       ),
     );
@@ -227,7 +513,7 @@ class _ScanScreenState extends State<ScanScreen>
     );
   }
 
-  // ── Sekme 2: Metin ────────────────────────────────────────────────────────
+  // ── Sekme 2: SS / Metin Analizi ─────────────────────────────────────────
 
   Widget _buildTextTab() {
     return SingleChildScrollView(
@@ -236,13 +522,20 @@ class _ScanScreenState extends State<ScanScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 4),
-          _SectionLabel(text: 'Şüpheli Metin / Sosyal Mühendislik Mesajı'),
+          _SectionLabel(text: 'E-posta / SS Phishing Analizi → Gemini AI'),
           const SizedBox(height: 10),
           _buildTextField(),
+          const SizedBox(height: 12),
+          _buildSsUploadBox(),
           const SizedBox(height: 20),
           if (_isLoading) _buildLoadingCard(),
           if (_showResult) _buildResultCard(),
-          if (!_isLoading && !_showResult) _buildAnalyzeButton(),
+          if (!_isLoading && !_showResult &&
+              (_textCtrl.text.trim().isNotEmpty || _ssFile != null))
+            _buildAnalyzeButton(),
+          if (!_isLoading && !_showResult &&
+              _textCtrl.text.trim().isEmpty && _ssFile == null)
+            _buildAnalyzeButton(), // disabled görünür ama tap validation halleder
           if (_showResult) ...[
             const SizedBox(height: 12),
             _buildResetButton(),
@@ -251,6 +544,79 @@ class _ScanScreenState extends State<ScanScreen>
       ),
     );
   }
+
+  Widget _buildSsUploadBox() {
+    if (_ssFile != null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.bgElevated,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _kCyan.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.image_rounded, color: _kCyan, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _ssFileName ?? _ssFile!.name,
+                style: GoogleFonts.inter(fontSize: 13, color: AppColors.textPrimary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            GestureDetector(
+              onTap: () => setState(() { _ssFile = null; _ssFileName = null; }),
+              child: Icon(Icons.close_rounded, color: AppColors.textMuted, size: 18),
+            ),
+          ],
+        ),
+      );
+    }
+    return GestureDetector(
+      onTap: _pickScreenshot,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.bgElevated,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _kCyan.withOpacity(0.25)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_photo_alternate_outlined, color: _kCyan, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Ekran Görüntüsü Ekle (opsiyonel)',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: _kCyan,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickScreenshot() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+      withData: true,
+    );
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        _ssFile     = result.files.first;
+        _ssFileName = result.files.first.name;
+      });
+    }
+  }
+
+
 
   // Tek satırlık URL alanı
   Widget _buildUrlField() {
@@ -351,14 +717,17 @@ class _ScanScreenState extends State<ScanScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 4),
-          _SectionLabel(text: 'Şüpheli Dosya veya Görsel'),
+          _SectionLabel(text: 'Dosya Tara → VirusTotal (EXE, APK, PDF, ZIP vb.)'),
           const SizedBox(height: 10),
           _buildDashedUploadBox(),
           if (_pickedFileName != null) ...[
             const SizedBox(height: 12),
             _PickedFileChip(
               name: _pickedFileName!,
-              onRemove: () => setState(() => _pickedFileName = null),
+              onRemove: () => setState(() {
+                _pickedFileName = null;
+                _pickedPlatformFile = null;
+              }),
             ),
           ],
           const SizedBox(height: 20),
@@ -398,7 +767,7 @@ class _ScanScreenState extends State<ScanScreen>
             ),
             const SizedBox(height: 16),
             Text(
-              'Şüpheli dosyayı seçmek için dokunun',
+              'Taranacak dosyayı seçmek için dokunun',
               style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
@@ -408,7 +777,7 @@ class _ScanScreenState extends State<ScanScreen>
             ),
             const SizedBox(height: 6),
             Text(
-              'PDF, EXE, APK, PNG, JPG desteklenir',
+              'EXE, APK, PDF, ZIP, DOC, XLSX desteklenir',
               style: GoogleFonts.inter(
                 fontSize: 12,
                 color: AppColors.textMuted,
