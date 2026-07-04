@@ -1,63 +1,47 @@
-# 🛡️ CyberCheck
+# 🛡️ CyberCheck: Yapay Zeka Destekli Tehdit İstihbarat Platformu
 
-Siber güvenlik izleme ve kontrol platformu. Üç ana bileşenden oluşur:
-
----
-
-## 📁 Proje Yapısı
-
-```
-CyberCheck/
-├── backend/          # Node.js + Express.js REST API
-├── frontend-web/     # React.js + Vite web paneli
-└── mobile-app/       # Flutter mobil uygulaması
-```
+![CyberCheck Banner](test.png) **CyberCheck**, şüpheli web bağlantılarını (URL), e-postaları ve dosyaları cihazınıza indirmeden bulut ortamında analiz eden, yapay zeka destekli yeni nesil bir siber güvenlik asistanıdır. Fırat Üniversitesi Yazılım Mühendisliği bitirme projem olarak sıfırdan geliştirilmiştir.
 
 ---
 
-## 🚀 Hızlı Başlangıç
+## 🚀 Proje Özeti & Özellikler
 
-### 1. Backend
+* **🧠 Yapay Zeka Destekli Analiz:** Google Gemini AI entegrasyonu ile tehditler sadece "zararlı" olarak işaretlenmez; oltalama (phishing) taktikleri ve saldırı motivasyonları detaylı bir şekilde raporlanır.
+* **🦠 Küresel İstihbarat Ağı:** VirusTotal API entegrasyonu sayesinde hedef dosyalar ve linkler saniyeler içinde 80'den fazla antivirüs motorunda eşzamanlı taranır.
+* **📱 Çoklu Platform Desteği:** Hem modern bir Web SOC Dashboard'u (React) hem de taşınabilir bir Mobil Uygulama (Flutter) ile her an yanınızda.
+* **📄 Kurumsal Raporlama:** Taramalarınızın sonucunu şık, detaylı ve PDF formatında kurumsal bir siber istihbarat raporu olarak dışa aktarabilirsiniz.
+* **🔐 Güvenli Altyapı:** Supabase (PostgreSQL) ile güvenli kimlik doğrulama ve veritabanı yönetimi sağlanır.
+
+---
+
+## 🛠️ Teknolojik Yığın (Tech Stack)
+
+* **Backend:** Node.js, Express.js, Supabase, VirusTotal API, Google Gemini AI API
+* **Frontend (Web):** React.js, Tailwind CSS, Vite
+* **Frontend (Mobil):** Flutter, GoRouter, fl_chart, printing
+
+---
+
+## ⚙️ Kurulum ve Çalıştırma
+
+Projeyi lokalinizde test etmek için adımları izleyin:
 
 ```bash
+# 1. Depoyu Klonlayın
+git clone [https://github.com/mustafaonler/CyberCheck.git](https://github.com/mustafaonler/CyberCheck.git)
+cd CyberCheck
+
+# 2. Backend'i Başlatın
 cd backend
 npm install
-# .env dosyasını düzenle (DB bilgilerini gir)
-npm run dev
-# → http://localhost:5000
-```
+npm start # (Not: .env dosyasındaki API key'leri tanımlanmalıdır)
 
-### 2. Frontend Web
-
-```bash
-cd frontend-web
+# 3. Web Arayüzünü Başlatın
+cd ../frontend-web
 npm install
 npm run dev
-# → http://localhost:3000
-```
 
-### 3. Mobile App
-
-```bash
-cd mobile-app
+# 4. Mobil Uygulamayı Başlatın
+cd ../mobile-app
 flutter pub get
 flutter run
-```
-
----
-
-## �️ Teknoloji Yığını
-
-| Katman       | Teknoloji                              |
-|--------------|----------------------------------------|
-| Backend      | Node.js, Express.js, PostgreSQL (pg)   |
-| Frontend Web | React 18, Vite 5                       |
-| Mobil        | Flutter 3, Dart 3                      |
-
----
-
-## 📋 Gereksinimler
-
-- **Node.js** >= 18
-- **Flutter** >= 3.x / **Dart** >= 3.3
-- **PostgreSQL** >= 14
